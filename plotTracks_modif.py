@@ -18,8 +18,8 @@ time = []
 d_rp = []
 S5P_pr = []
 state = []
-with open("gene_track/set"+str(r)+"/geneTrack.txt") as f:
-#with open("geneTrack.txt") as f:
+#with open("gene_track/set"+str(r)+"/geneTrack.txt") as f:
+with open("geneTrack.txt") as f:
     while True:
         line = f.readline()
         if not line:
@@ -72,9 +72,9 @@ for i in range(len(d_rp)):
         d_rp_array = []
         S5P_pr_array = []
     prev_state = state[i]
-ax[1].set_xlabel('Time (min)', fontsize=8)
-ax[0].set_ylabel('d(RE,Pr) (nm)', fontsize=8)
-ax[1].set_ylabel('# Ser5P', fontsize=8)
+ax[1].set_xlabel('Time (min)', fontsize=6)
+ax[0].set_ylabel('Reg-promoter distance [nm]', fontsize=4)
+ax[1].set_ylabel('Nr of Ser5P around promoter', fontsize=4)
 ax[0].tick_params(axis='both', which='major', labelsize=6)
 ax[1].tick_params(axis='both', which='major', labelsize=6)
 for axis in ['top','bottom','left','right']:
@@ -82,7 +82,8 @@ for axis in ['top','bottom','left','right']:
     ax[1].spines[axis].set_linewidth(0.5)
 ax[0].tick_params(length=2, width=0.5)
 ax[1].tick_params(length=2, width=0.5)
-fig.savefig("gene_track/set"+str(r)+"/gene_track.pdf", bbox_inches="tight")
+#fig.savefig("gene_track/set"+str(r)+"/gene_track.pdf", bbox_inches="tight")
+fig.savefig("gene_track.pdf", bbox_inches="tight")
 
 fig, ax = plt.subplots(figsize=(2*cm, 1*cm))
 I = [x for x in range(len(time)) if time[x]>=t1/2000 and time[x]<=(t4/2000+2)]
@@ -116,8 +117,10 @@ for axis in ['top','bottom','left','right']:
 ax.tick_params(length=2, width=0.25)
 ax.set_xticks([])
 ax.set_yticks([])
-fig.savefig("gene_track/set"+str(r)+"/gene_track_inset.pdf", bbox_inches="tight")
+#fig.savefig("gene_track/set"+str(r)+"/gene_track_inset.pdf", bbox_inches="tight")
+fig.savefig("gene_track_inset.pdf", bbox_inches="tight")
 
+#print the times t1, t2, t3 and t4 corresponding to the bottom graph in gene_track.pdf file
 print(t1*0.03/60)
 print(t2*0.03/60)
 print(t3*0.03/60)

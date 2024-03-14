@@ -11,11 +11,14 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import seaborn as sns
 import os
+import sys
 import pandas as pd
 from shapely.geometry import Point, Polygon
 import statistics as st
 import scipy
+import scipy.interpolate
 from scipy.ndimage import gaussian_filter
+#from matplotlib.patches import Polygon
 # from geomdl import fitting
 # from geomdl import construct
 # from geomdl.visualization import VisMPL as vis
@@ -25,7 +28,17 @@ from scipy.ndimage import gaussian_filter
 # mpl.rcParams['text.latex.preamble'] = [r'\usepackage{amsmath}']
 # plt.rcParams['text.latex.preamble'] = r"\usepackage{bm} \usepackage{amsmath}"
 cm = 1/2.54
-get_ipython().run_line_magic('matplotlib', 'notebook')
+#get_ipython().run_line_magic('matplotlib', 'notebook')
+try:
+    # Check if running in a Jupyter environment
+    from IPython import get_ipython
+    if get_ipython() is not None:
+        get_ipython().run_line_magic('matplotlib', 'notebook')
+except:
+    # If not in a Jupyter environment, use a non-interactive backend for Matplotlib
+    import matplotlib
+    matplotlib.use('Agg')  # Use Agg backend for non-interactive plotting
+
 
 def set_box_color(bp, color):
     plt.setp(bp['boxes'], color=color)
@@ -67,7 +80,7 @@ activations=[60*x/600 for x in activations]
 
 
 # In[4]:
-
+# In original script, P7 was declared twice; it is uncertain which declaration is correct
 
 add_S2P_noise = 1 
 
@@ -78,7 +91,7 @@ P3 = (110, y3(P1[0], P1[1], P2[0], P2[1], 110))
 P4 = (2.9,1.5)
 P5 = (20,2)
 P6 = (85, y3(P4[0], P4[1], P5[0], P5[1], 85))
-P7 = (0, y3(P1[0], P1[1], P4[0], P4[1], 0))
+#P7 = (0, y3(P1[0], P1[1], P4[0], P4[1], 0))
 P7 = (2.8, y3(P1[0], P1[1], P4[0], P4[1], 2.8))
 P8 = (12, y3(P2[0], P2[1], P5[0], P5[1], 12)) # 5
 P9 = x5y5(P3[0], P3[1], P6[0], P6[1], P7[0], P7[1], P8[0], P8[1])
@@ -103,8 +116,42 @@ all_activation_distances=[]
 all_promoters=[]
 all_markers = []
 all_include = []
-df_summary = pd.read_csv('summary_contact_grouped.txt')
+
+if len(sys.argv) == 2 and (sys.argv[1] == '-h' or sys.argv[1] == '--help'):
+        print("Usage: python3 contact_maps_flags.py -f /path/to/file/summary_contact_grouped.txt")
+        sys.exit(0)
+
+if len(sys.argv) != 3 or sys.argv[1] != '-f':
+    print("Usage: python3 contact_maps_flags.py -f /path/to/file/summary_contact_grouped.txt")
+    sys.exit(1)
+
+file_path = sys.argv[2]
+
+if not os.path.exists(file_path):
+    print(f"ERROR: Input file 'summary_contact_grouped.txt' does not exist")
+    sys.exit(1)
+
+try:
+    df_summary = pd.read_csv(file_path)
+        
+except Exception as e:
+    print(f"ERROR: An error occurred while reading the file: {e}")
+    sys.exit(1)
+
+# Check if the input file exists
+#if not os.path.exists('summary_contact_grouped.txt'):
+#    print(f"ERROR: Input file 'summary_contact_grouped.txt' does not exist")
+#    sys.exit(1)
+
+#df_summary = pd.read_csv('summary_contact_grouped.txt')
+
 # df_summary = pd.read_csv('summary_contact_all.txt')
+
+# Check if the DataFrame is empty or contains only non-numeric values
+if df_summary.empty or not df_summary.applymap(np.isreal).all().all():
+    print("ERROR: Input file is empty or does not contain numerical values")
+    sys.exit(1)
+
 for i in range(len(df_summary)):
     
     df_summary.loc[i, "Activation"] = 60*df_summary.loc[i, "Activation"]/600
@@ -151,12 +198,23 @@ maxContact = np.max(df_summary.loc[df_summary["Include"]>0, "Contact"])
 
 # In[5]:
 
+# Check if the directory 'contact_maps' exists; if not, create it
+if not os.path.exists('contact_maps'):
+    os.makedirs('contact_maps')
 
 fig, ax = plt.subplots(figsize=(7*cm, 5*cm))
 df_filtered = df_summary.loc[df_summary["Region"]>=1,:]
 minContact = np.min(df_filtered.loc[df_filtered["Include"]>=1, "Contact"])
 maxContact = np.max(df_filtered.loc[df_filtered["Include"]>=1, "Contact"])
-maxContact = np.percentile(df_filtered.loc[df_filtered["Include"]>=1, "Contact"].tolist(), 99)
+
+if not df_filtered.empty:
+    # Calculate percentile only if df_filtered is not empty
+    maxContact = np.percentile(df_filtered.loc[df_filtered["Include"] >= 1, "Contact"].tolist(), 99)
+else:
+    # Handle case when df_filtered is empty (e.g., set maxContact to a default value)
+    maxContact = None  # or any other default value you want to use
+
+#maxContact = np.percentile(df_filtered.loc[df_filtered["Include"]>=1, "Contact"].tolist(), 99)
 # if filt_name!="all":
 plt.scatter(df_summary.loc[df_summary["Include"]>=0, "S5PInt"], df_summary.loc[df_summary["Include"]>=0, "S2PInt"], c=df_summary.loc[df_summary["Include"]>=0, "Contact"], marker='o', s=3, edgecolors="none", alpha=1)
 cbar = plt.colorbar()
@@ -180,7 +238,15 @@ fig, ax = plt.subplots(figsize=(7*cm, 5*cm))
 df_filtered = df_summary.loc[df_summary["Region"]>=1,:]
 minContact = np.min(df_filtered.loc[df_filtered["Include"]>=1, "Contact"])
 maxContact = np.max(df_filtered.loc[df_filtered["Include"]>=1, "Contact"])
-maxContact = np.percentile(df_filtered.loc[df_filtered["Include"]>=1, "Contact"].tolist(), 99)
+
+if not df_filtered.empty:
+    # Calculate percentile only if df_filtered is not empty
+    maxContact = np.percentile(df_filtered.loc[df_filtered["Include"] >= 1, "Contact"].tolist(), 99)
+else:
+    # Handle case when df_filtered is empty (e.g., set maxContact to a default value)
+    maxContact = None  # or any other default value you want to use
+
+#maxContact = np.percentile(df_filtered.loc[df_filtered["Include"]>=1, "Contact"].tolist(), 99)
 # if filt_name!="all":
 #     plt.scatter(df_summary.loc[df_summary["Include"]>=0, "S5PInt"], df_summary.loc[df_summary["Include"]>=0, "S2PInt"], color=[0.75,0.75,0.75], marker='o', s=3, edgecolors="none", alpha=1)
 plt.scatter(df_summary.loc[df_summary["Include"]==1, "S5PInt"], df_summary.loc[df_summary["Include"]==1, "S2PInt"],  color=[0.75,0.75,0.75], marker='o', s=1, edgecolors="none", alpha=1)
@@ -270,6 +336,31 @@ uniq_regions = [1,2,3,4]
 fig, ax = plt.subplots(1, 3, sharex=True, figsize=(10*cm, 3*cm))
 k=0
 df = df_summary[df_summary["Include"]==1]
+
+for i in range(3):
+    # sns.boxplot(x="Region", y=var_order[k], data=df, ax=ax[i,j], linewidth=0.75, flierprops=flierprops, **PROPS)
+    for r in range(len(uniq_regions)):
+        df_filtered = df[df["Region"]==uniq_regions[r]]
+        
+        # Calculate standard error only if the length of data is greater than zero
+        data_length = len(df_filtered[var_order[k]])
+        if data_length > 0:
+            standard_error = np.std(df_filtered[var_order[k]]) / math.sqrt(data_length)
+        else:
+            standard_error = None  # Handle case when data length is zero
+        
+        # Plot the data using errorbar
+        ax[i].errorbar(r, np.mean(df_filtered[var_order[k]]), yerr=standard_error, fmt='_', markersize=2, color='none', mfc="none", ecolor=[0.5,0.5,0.5], elinewidth=1, capsize=0)
+        ax[i].plot([r-0.3,r+0.3], [np.mean(df_filtered[var_order[k]])]*2, "k-", lw=1)
+    
+    k=k+1
+    ax[i].set(xlabel=None)
+    ax[i].tick_params(axis='both', which='major', labelsize=6)
+    ax[i].set_xticks(range(len(uniq_regions)))
+    for axis in ['top','bottom','left','right']:
+        ax[i].spines[axis].set_linewidth(0.5)
+
+'''
 for i in range(3):
         # sns.boxplot(x="Region", y=var_order[k], data=df, ax=ax[i,j], linewidth=0.75, flierprops=flierprops, **PROPS)
         for r in range(len(uniq_regions)):
@@ -286,6 +377,7 @@ for i in range(3):
         # ax[i].set_xticklabels(['NV-in', 'NV-ac', 'V-in', 'V-ac'], rotation = 90)
         for axis in ['top','bottom','left','right']:
             ax[i].spines[axis].set_linewidth(0.5)
+'''
 
 ax[0].set_yticks([1,2,3])
 ax[0].set_ylim([0.9,3.1])
@@ -306,7 +398,12 @@ fig.savefig('contact_maps/byRegion_figure.pdf', bbox_inches='tight')
 # Parameter ditributions by regions - new figure
 
 def compute_fractions(lst):
-    return [lst.count(i)/len(lst) for i in [1, 2, 3]]
+    if len(lst) == 0:
+        return [0, 0, 0]
+    return [lst.count(i) / len(lst) for i in [1, 2, 3]]
+
+#def compute_fractions(lst):
+#    return [lst.count(i)/len(lst) for i in [1, 2, 3]]
 barWidth = 0.19
 
 PROPS = {
@@ -447,8 +544,11 @@ fig.savefig('contact_maps/heatmap_thr.pdf', bbox_inches='tight')
 
 # In[22]:
 
-
 def nonuniform_imshow(x, y, z, aspect=6, cmap=plt.cm.viridis):
+  x = pd.to_numeric(x, errors='coerce')
+  y = pd.to_numeric(y, errors='coerce')
+  z = pd.to_numeric(z, errors='coerce')
+   
   # Create regular grid
   # xi, yi = np.linspace(x.min(), x.max(), 100), np.linspace(y.min(), y.max(), 100)
   xi, yi = np.linspace(x.min(), x.max(), 1000), np.linspace(y.min(), y.max(), 1000) # 1000,1000
@@ -478,10 +578,12 @@ def nonuniform_imshow(x, y, z, aspect=6, cmap=plt.cm.viridis):
 # fig, ax, heatmap = nonuniform_imshow(df_filtered.loc[df_filtered["Include"]==1, "S5PInt"], df_filtered.loc[df_filtered["Include"]==1, "S2PInt"], df_filtered.loc[df_filtered["Include"]==1, "Contact"])
 fig, ax, heatmap = nonuniform_imshow(df_summary.loc[df_summary["Include"]==1, "S5PInt"], df_summary.loc[df_summary["Include"]==1, "S2PInt"], df_summary.loc[df_summary["Include"]==1, "Contact"])
 ax.invert_yaxis()
+
 # plt.colorbar(heatmap)
 # plt.show()
 xs, ys = nv_in.exterior.xy
-ax.fill(xs, ys, alpha=1, fc='none', ec='k', linewidth=0.75)
+
+#ax.fill(xs, ys, alpha=1, fc='none', ec='k', linewidth=0.75)
 xs, ys = nv_ac.exterior.xy
 ax.fill(xs, ys, alpha=1, fc='none', ec='k', linewidth=0.75)
 xs, ys = v_in.exterior.xy

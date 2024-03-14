@@ -1,10 +1,26 @@
 # To add a new cell, type '# %%'
 # To add a new markdown cell, type '# %% [markdown]'
 # %%
+# Parameters of the output files can be modified in the last section
 
 import random
 import numpy as np
 import os
+import sys
+
+def main():
+    # Check if '-h' or '--help' is provided as argument
+    if '-h' in sys.argv or '--help' in sys.argv:
+        print("Use: python3 make_input_file_flags.py -p -b -a")
+        print("-p:  List of promoter lengths to make the input files for. Default visitor gene: 3, non-visitor: 1. Usual range = 1, 2, 3")
+        print("-b: box sizes to consider. Good box sizes are 11, 12.")
+        print("default values: -p 1,2,3 ; -b 10,11,12")
+        print("-a: does the simulation include actin? 1 - yes, 0 - no. Default: 0 - no actin simulation")
+        return
+
+if __name__ == "__main__":
+    main()
+
 
 def draw_next_location(box_size, current_location, allowed_range):
     if current_location.size==0:
@@ -330,17 +346,44 @@ def make_input_file_general(filament_length=3, number_of_filaments=1, box_size=1
 
 os.makedirs('input_files', exist_ok=True)
 
+        
+# Default values
+promoter_lengths = [1, 2, 3]
+box_sizes = [10, 11, 12]
+
+# Is this an actin simulation?
+is_actin_simulation = False
+
+# Check if user provided values for promoter_lengths and box_sizes
+i = 1
+while i < len(sys.argv):
+    if sys.argv[i] == '-p' and i+1 < len(sys.argv):
+            promoter_lengths = [int(x) for x in sys.argv[i+1].split(',')]
+            i += 2
+    elif sys.argv[i] == '-b' and i+1 < len(sys.argv):
+            box_sizes = [int(x) for x in sys.argv[i+1].split(',')]
+            i += 2
+    elif sys.argv[i] == '-a' and i+1 < len(sys.argv):
+            if sys.argv[i+1] == '1':
+                is_actin_simulation = True
+            elif sys.argv[i+1] == '0':
+                is_actin_simulation = False
+            i += 2
+    else:
+            i += 1
+
+
 # List of promoter lengths to make the input files for: 
 # Default visitor gene: 3, non-visitor: 1. 
 # Usual range = 1, 2, 3
-promoter_lengths = [3]
+#promoter_lengths = [1,2,3]
 
 # Box sizes to consider
 # 11, 12 are good box sizes
-box_sizes = [11]
+#box_sizes = [10,11,12]
 
 # Is this an actin simulation?
-is_actin_simulation = True
+#is_actin_simulation = True
 
 # If you want to make input files for other sets of parameters, you can add those here and also make more for loops below
 for promoter_length in promoter_lengths:
@@ -351,3 +394,7 @@ for promoter_length in promoter_lengths:
             number_of_filaments = 0
         make_input_file_general(filament_length=3, number_of_filaments=number_of_filaments, box_size=box_size, is_actin_simulation=is_actin_simulation, promoter_length=promoter_length)
         
+        
+print("Promoter lengths:", promoter_lengths)
+print("Box sizes:", box_sizes)
+print("Is actin simulation:", is_actin_simulation)

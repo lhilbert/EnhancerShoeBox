@@ -17,6 +17,9 @@ from PIL import Image
 import seaborn as sns
 import glob
 
+# Set the OMP_NUM_THREADS environment variable
+#os.environ["OMP_NUM_THREADS"] = "4"  # Adjust the number of threads as needed
+
 # Atom types:
 # -----------
 
@@ -234,23 +237,23 @@ def progress_bars(data, total, bar_length=20):
 
 # Parse arguments
 try:
-    opts, args = getopt.getopt(sys.argv[1:], "hb:r:t:o:m:c:x:p:a:x:z:n:", ["box=","repeat=","total=","outfolder=","make_images=","condition=","promoter=","activation=","threshold=","actin=","nucleation="])
+    opts, args = getopt.getopt(sys.argv[1:], "hb:r:t:o:m:c:x:p:a:x:z:n:q:", ["box=","repeat=","total=","outfolder=","make_images=","condition=","promoter=","activation=","threshold=","actin=","nucleation=","threads="])
 except getopt.GetoptError:
-    print('run_single_shoebox.py -b <box_size> -r <repeat> -t <total_runs> -o <out_folder> -m <make_images> -c <condition> -p <promoter_length> -a <activation_rate> -x <threshold> -z <actin> -n <p_nucleation>')
+    print('run_single_shoebox.py -b <box_size> -r <repeat> -t <total_runs> -o <out_folder> -m <make_images> -c <condition> -p <promoter_length> -a <activation_rate> -x <threshold> -z <actin> -n <p_nucleation> -q <num_threads>')
     sys.exit(2)
 
 # Loop over arguments and assign parameter values
 for opt, arg in opts:
     # Help
     if opt == '-h':
-        print('run_single_shoebox.py -b <box_size> -r <repeat> -t <total_runs> -o <out_folder> -m <make_images> -c <condition> -p <promoter_length> -a <activation_rate> -x <threshold> -z <actin> -n <p_nucleation>')
+        print('run_single_shoebox.py -b <box_size> -r <repeat> -t <total_runs> -o <out_folder> -m <make_images> -c <condition> -p <promoter_length> -a <activation_rate> -x <threshold> -z <actin> -n <p_nucleation> -q <num_threads>')
         sys.exit()
         
     # Length of the shoe-box in monomer units
     elif opt in ("-b", "--box"):
         box = int(arg)
         
-    # Repeat/run number
+    # Repeat/run number (number of the current run)
     elif opt in ("-r", "--repeat"):
         run_number = int(arg)
         
@@ -267,7 +270,7 @@ for opt, arg in opts:
         make_snapshots = int(arg)
         
     # Which condition does the simulation correspond to? 
-    # Control, LatB etc. 
+    # Control, LatB etc. and transcription inhibitors. Complete list to be placed in user's manual
     # Later in the code, we'll change potentials and other things depending on the condition
     elif opt in ("-c", "--condition"):
         condition = arg
@@ -281,7 +284,7 @@ for opt, arg in opts:
     elif opt in ("-a", "--activation"):
         p_gene_activation = float(arg)/1000
         
-    # Pol II Ser5P threshold for gene activation
+    # Pol II Ser5P threshold for gene activation (thershold number of PolII molecules to initiate activation)
     elif opt in ("-x", "--threshold"):
         ser5p_to_activate = int(arg)
         
@@ -296,8 +299,16 @@ for opt, arg in opts:
     # They are referenced as "pnuc{x}d" in the output folder names, where x is the number of decimal points
     # 0.1: pnuc1d, 0.01: pnuc2d, 0.001: pnuc3d, 0.0001: pnuc4d, 0.00001: pnuc5d
     # So higher the x, longer the resulting actin filaments on average (less nucleation of new filaments)
+    # Python time step - user defined with reference to the fastest reaction rate
     elif opt in ("-n", "--nucleation"):
         p_nucleation = float(arg)
+        
+    # Set the OMP_NUM_THREADS environment variable
+    # Adjust the number of threads as needed    
+    elif opt in ("-q", "--threads"):
+    	number_threads = int(arg)
+    	os.environ["OMP_NUM_THREADS"] = str(arg) 
+    	print(f"OMP_NUM_THREADS = {arg}")
      
 if init_free_actin==0:
     is_actin_simulation = False
@@ -305,6 +316,7 @@ else:
     is_actin_simulation = True
     
 # Create various sub-directories you might need for each run
+#len() returns length of an object, eg. number of objects on a list
 folders_to_make = ["figures", "image_files", "microscopy_files"]
 if not os.path.exists(out_folder):
     os.makedirs(out_folder)
@@ -319,7 +331,9 @@ if not os.path.exists(out_folder+'/run'+str(run_number)):
 if os.path.exists('../log.lammps'):
     os.remove('../log.lammps')
     
+    
 # Create a new Group object and initialize a LAMMPS model inside it
+# Group.L assigns LAMMPS instance to L variable
 Group.lmp = lammps()
 Group.L = IPyLammps(ptr=Group.lmp)
 Group.L.log(out_folder+'/run'+str(run_number)+'/debug_RSQ.lammps')
@@ -331,6 +345,7 @@ sig_chromatin = 60 # in nm (for chromatin volume fraction 0.06)
 # You can play around with these but keep these numbers on hand, refer README.md for these values
 # init_free_actin is missing here as compared to make_input_file.py
 # We pass init_free_actin as a parameter to run_sigle_shoebox.py
+#RBP-RNA binding proteins, they are regulating gene expression
 if box==9:
     Ntot = 300
     number_of_Ser5P = 300
@@ -402,13 +417,16 @@ filaments = 1
 
 # Do you want to make plots at the end of the run? 
 # Ex.: Gene track, Ser5P distribution along the length of the box
+#1 - yes, 0 - no
 make_plots = 1
 
 # Do you want to make and store synthetic microscopy images?
-make_microscopy = 0
+# 1 - yes, 0 - no
+make_microscopy = 1
 
 # Do you want a more verbose output of the simulation's events?
-print_verbose = 0
+# 1 - yes, 0 - no
+print_verbose = 1
 
 # Move actin atoms immediately performing nucleation, polymerization and depolymerization?
 # This ensures that the potentials and forces don't blow up
@@ -455,7 +473,7 @@ filePath = f'input_files/IC_{fileBase_input}.data'
 # Length of the soft phase in Python timesteps
 t_soft = 10 
 
-
+# inhibition of actin polymerization
 if condition=="LatB" or condition=="SwinA_nopol":
     t_polymerization_on = 2*NRuns
 else:
@@ -671,6 +689,7 @@ elif Ntot==800:
 Group.L.fix('freezeAnchors Anchors setforce 0.0 0.0 0.0')
 
 # Defining a dump for snapshots
+# Description of the output images needed: red - inactive gene body, blue - promoter, dark grey - active gene etc.
 if make_snapshots:
     image_dump_string = 'imageDump pad 7 backcolor white adiam 1*2 0.5 adiam 3*5 0.4 adiam 6*7 0.5 adiam 8 0.5 adiam 9*11 0.5 bdiam 1 0.05 bdiam 2 0.2 color verydarkgrey 0.2 0.2 0.2 color reblue 0.13 0.33 0.62 color s5p 0.69 0.33 0.33 color indgene 0.47 0.03 0.03 acolor 1 lightgrey acolor 2 lightgrey acolor 3 chartreuse acolor 4 yellow acolor 5 aqua acolor 6 indgene acolor 7 verydarkgrey acolor 8 s5p acolor 9 reblue acolor 10 reblue acolor 11 reblue'
     Group.L.dump('imageDump ImageGroup image', tImageDump, out_folder+'/run'+str(run_number)+'/image_files/BEFORE_*.ppm type type zoom',3,'size',1700,1000,'view',0,-90,'shiny 0.5 box no 1')
@@ -774,7 +793,7 @@ for i in range(NRuns+treatment_duration):
         
     # Clear terminal, print details and progress of all the parallely running simulations
     subprocess.run(["clear"])
-    print("Condition: "+condition+", Promoter: "+str(promoter_length)+", Total runs: "+str(total_runs)+"\n")
+    print("Condition: "+condition+", Promoter: "+str(promoter_length)+", Total runs: "+str(total_runs)+", Number of OMP threads: "+str(number_threads)+"\n")
     progress_bars(data, NRuns)
     
     if print_verbose:
@@ -1801,6 +1820,5 @@ if make_plots:
         plt.xlabel('dReg-RSS distance (nm)')
         plt.ylabel('Probability')
         fig.savefig(out_folder+'/run'+str(run_number)+"/figures/gene_"+str(j+1)+"_ddrg_events.pdf", bbox_inches="tight")
-
 
 # %%

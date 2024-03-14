@@ -146,6 +146,7 @@ N=30000
 dr=0.0001
 rmax=3.0 
 
+# epsilons
 gRE=1
 fRE=1.5
 aE_actin_actin=1.0
