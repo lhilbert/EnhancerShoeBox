@@ -15,7 +15,6 @@ import scipy
 from scipy.ndimage import gaussian_filter
 from matplotlib.colors import ListedColormap
 from scipy.interpolate import interp1d
-
 # --------------------------
 # Define Parula colormap manually
 # --------------------------
@@ -159,9 +158,13 @@ maxContact = np.percentile(df_filtered.loc[df_filtered["Include"]>=1, "Contact"]
 plt.scatter(df_summary.loc[df_summary["Include"]>=0, "S5PInt"],
             df_summary.loc[df_summary["Include"]>=0, "S2PInt"],
             c=df_summary.loc[df_summary["Include"]>=0, "Contact"],
-            marker='o', s=3, edgecolors="none", alpha=1, cmap=parula_cmap)
+            marker='o', s=1, edgecolors="none", alpha=1, cmap=parula_cmap)
 cbar = plt.colorbar()
+cbar.set_label("Contact %")
 cbar.ax.tick_params(axis='both', which='major', labelsize=6)
+
+ax.set_xlabel("Mean S5P Int.")
+ax.set_ylabel("Mean S2P Int.")
 ax.set_xlim(left=-10)
 ax.tick_params(axis='both', which='major', labelsize=6)
 for axis in ['top','bottom','left','right']:
@@ -170,28 +173,42 @@ for axis in ['top','bottom','left','right']:
 fig.savefig('contact_maps_parula/contact_all.pdf', bbox_inches='tight')
 
 # ---------------------- FIGURE 2 ----------------------
+
 fig, ax = plt.subplots(figsize=(7*cm, 5*cm))
 df_filtered = df_summary.loc[df_summary["Region"]>=1,:]
 minContact = np.min(df_filtered.loc[df_filtered["Include"]>=1, "Contact"])
 maxContact = np.percentile(df_filtered.loc[df_filtered["Include"]>=1, "Contact"].tolist(), 99)
+
 plt.scatter(df_summary.loc[df_summary["Include"]==1, "S5PInt"],
             df_summary.loc[df_summary["Include"]==1, "S2PInt"],
             color=[0.75,0.75,0.75], marker='o', s=1, edgecolors="none", alpha=1)
+
 plt.scatter(df_filtered.loc[df_filtered["Include"]==1, "S5PInt"],
             df_filtered.loc[df_filtered["Include"]==1, "S2PInt"],
             c=df_filtered.loc[df_filtered["Include"]==1, "Contact"],
             marker='o', s=1, cmap=parula_cmap,  vmin=minContact, vmax=maxContact, edgecolors="none", alpha=1)
+
 for poly in [nv_in, nv_ac, v_in, v_ac]:
     xs, ys = poly.exterior.xy
     ax.fill(xs, ys, alpha=1, fc='none', ec='k', linewidth=0.75)
+
+# Add labeled colorbar
 cbar = plt.colorbar()
+cbar.set_label("Contact %", fontsize=8)
 cbar.ax.tick_params(axis='both', which='major', labelsize=6)
+
+# Add axis labels
+ax.set_xlabel("Mean S5P Int.", fontsize=8)
+ax.set_ylabel("Mean S2P Int.", fontsize=8)
+
 ax.set_xlim(left=-10)
 ax.tick_params(axis='both', which='major', labelsize=6)
 for axis in ['top','bottom','left','right']:
     ax.spines[axis].set_linewidth(0.5)
     cbar.ax.spines[axis].set_linewidth(0.5)
+
 fig.savefig('contact_maps_parula/contactRegionFocused.pdf', bbox_inches='tight')
+
 
 # ---------------------- FIGURE 3 (mean plots by region) ----------------------
 PROPS = {
@@ -292,4 +309,75 @@ ax.set_ylim(-0.5,12)
 ax.set_xticks([0,100])
 ax.set_yticks([0,12.5])
 fig.savefig('contact_maps_parula/surface.pdf', bbox_inches='tight')
+
+# ---------------------- FIGURE 6: byRegion_new.pdf ----------------------
+
+def compute_fractions(lst):
+    """Compute fractions of elements equal to 1, 2, or 3 in a list."""
+    return [lst.count(i) / len(lst) if len(lst) > 0 else 0 for i in [1, 2, 3]]
+
+# Figure and plot setup
+cm = 1/2.54  # centimeters to inches conversion
+barWidth = 0.19
+
+PROPS = {
+    'boxprops': {'facecolor': 'none', 'edgecolor': 'k'},
+    'medianprops': {'color': 'k'},
+    'whiskerprops': {'color': 'k'},
+    'capprops': {'color': 'k'}
+}
+flierprops = dict(marker='o', markerfacecolor='none', markersize=2,
+                  linestyle='none', markeredgecolor='k')
+
+var_order = ["Promoter", "Activation", "Contact"]
+uniq_regions = [1, 2, 3, 4]
+
+fig, ax = plt.subplots(1, 3, sharex=True, figsize=(10*cm, 3*cm))
+df = df_summary[df_summary["Include"] == 1]
+
+for i, var in enumerate(var_order):
+    for r in range(len(uniq_regions)):
+        df_filtered = df[df["Region"] == uniq_regions[r]]
+
+        if i < 1:
+            # Promoter variable — use bar plot showing fractions
+            fractions = compute_fractions(df_filtered[var].to_list())
+            rx = [r - 0.25, r, r + 0.25]
+            ax[i].bar(rx, fractions, width=barWidth,
+                      color=["#eeeeee", "#bbbbbb", "#888888"],
+                      edgecolor=["k"] * 3, linewidth=0.25)
+        else:
+            # Boxplot for Activation and Contact
+            ax[i].boxplot(df_filtered[var].to_list(), positions=[r],
+                          showfliers=False, widths=0.5, showmeans=True,
+                          boxprops=dict(linewidth=0.5),
+                          whiskerprops=dict(linewidth=0.5),
+                          capprops=dict(linewidth=0.5),
+                          medianprops=dict(linewidth=0),
+                          meanline=True,
+                          meanprops=dict(linestyle="-", linewidth=1.5,
+                                         color='firebrick'))
+
+    # Axis formatting
+    ax[i].set(xlabel=None)
+    ax[i].tick_params(axis='both', which='major', labelsize=6)
+    ax[i].set_xticks(range(len(uniq_regions)))
+    for axis in ['top', 'bottom', 'left', 'right']:
+        ax[i].spines[axis].set_linewidth(0.5)
+
+# Y-axis and title setup
+ax[0].set_ylim([0, 0.53])
+ax[0].set_yticks([0, 0.25, 0.5])
+ax[1].set_yticks([0, 5, 10])
+ax[2].set_yticks([0, 10, 20, 30, 40, 50])
+ax[2].set_ylim([-1.1, 53.1])
+
+ax[0].set_title("Promoter length", fontsize=6)
+ax[1].set_title("Activation rate", fontsize=6)
+ax[2].set_title("Contact %", fontsize=6)
+
+fig.tight_layout()
+fig.savefig('contact_maps_parula/byRegion_new.pdf', bbox_inches='tight')
+plt.close(fig)
+
 
