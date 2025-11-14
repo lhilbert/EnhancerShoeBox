@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 
 # Input and output file names
-input_file = "summary_contact_grouped_Thresholds10-100_cpp.txt"
-output_file = "stochastic_ser2p_points_cpp.txt"
+input_file = "summary_contact_grouped_Thresholds10-100_test.txt"
+output_file = "stochastic_ser2p_points_test.txt"
 
 # Read the input file (tab or space delimited)
 df = pd.read_csv(input_file, sep=None, engine='python')
@@ -36,6 +36,7 @@ print(f"{n_discrete} discrete Ser2P values, {n_random} randomly scattered Ser2P 
 
 
 #For summary_contact_grouped_Thresholds10-100.txt, the output reads: "4809 discrete Ser2P values, 1791 randomly scattered Ser2P points"
+#For summary_contact_grouped_Thresholds10-100_int.txt, the output reads: "4809 discrete Ser2P values, 1791 randomly scattered Ser2P points"
 #For summary_contact_all_Thresholds10-100.txt, the output reads: "31119 discrete Ser2P values, 1881 randomly scattered Ser2P points"
-#For summary_contact_grouped_Thresholds10-100.txt, the output reads: "4743 discrete Ser2P values, 1857 randomly scattered Ser2P points"
+#For summary_contact_grouped_Thresholds10-100_cpp.txt, the output reads: "4743 discrete Ser2P values, 1857 randomly scattered Ser2P points"
 

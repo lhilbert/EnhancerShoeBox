@@ -987,6 +987,8 @@ for i in range(NRuns+treatment_duration):
     rnp_atoms_list = list(rnp_atoms)
     rbp_atoms_list = list(rbp_atoms)
     
+    #The script gathers atom positions and uses positions of RBP / RNP particles to compute distances, clusters, and to decide which RBPs will convert to RNPs:
+    
     if i>=t_transcription_on and i<t_transcription_off and i%t_rbprnp==0:
         active_genes_transcribing = random.sample(active_gene_lociStart, math.ceil(p_rbprnp*len(active_gene_lociStart)))
         if print_verbose:
@@ -999,6 +1001,7 @@ for i in range(NRuns+treatment_duration):
         ds = cdist(rbp_positions, active_gene_positions, 'euclidean')
         IPs = ds<transcription_rnp_radius
         I = [x for x in range(len(IPs)) if IPs[x].any()]
+        #The code changes atom types to convert particles between RBP and RNP states. Here: when RBP particles are recruited to active genes they are converted to type 5:
         for tbc in I:
             to_be_converted=rbp_atoms[tbc]
             rnp_atoms_list.append(to_be_converted)
@@ -1016,7 +1019,8 @@ for i in range(NRuns+treatment_duration):
             for j in rnp_to_switch:
                 rnp_atoms_copy.remove(j)
                 rbp_atoms_copy.append(j)
-                Group.L.set('atom', j, 'type', 4)
+                Group.L.set('atom', j, 'type', 4)  #convert RNP → RBP: actively change particle identity to model assembly/disassembly
+                #maintaining lists of which atom indices are RBPs or RNPs to use them to compute positions and do conversions:
             rnp_atoms = np.array(rnp_atoms_copy)   
             rbp_atoms = np.array(rbp_atoms_copy) 
         # RBP.respawn()
@@ -1065,7 +1069,7 @@ for i in range(NRuns+treatment_duration):
         x=2
     else:
         x=0
-    myGeneFile.write(str((i+1)*delt)+","+str(PromoterPositions[0,0]*sig_chromatin)+","+str(PromoterPositions[0,1]*sig_chromatin)+","+str(PromoterPositions[0,2]*sig_chromatin)+","+str(d_rp[-1][0]*sig_chromatin)+","+str(d_rg[-1][0]*sig_chromatin)+","+str(ser5p_around_promoter[-1][0])+","+str(ser5p_around_gene[-1][0])+","+str(x)+"\n")
+    myGeneFile.write(str((i+1)*delt)+","+str(PromoterPositions[0,0]*sig_chromatin)+","+str(PromoterPositions[0,1]*sig_chromatin)+","+str(PromoterPositions[0,2]*sig_chromatin)+","+str(d_rp[-1][0]*sig_chromatin)+","+str(d_rg[-1][0]*sig_chromatin)+","+str(ser5p_around_promoter[-1][0])+","+str(ser5p_around_gene[-1][0])+","+str(x)+"\n")   #write to the geneTrack.txt file
 
     # CLUSTER AROUND REGULATORY REGION
     ser5p_around_cluster.append([])
@@ -1083,7 +1087,7 @@ for i in range(NRuns+treatment_duration):
         diff_list.append(y-x)
     
     ser5p_around_cluster[i] = diff_list        
-    n_rnp.append(len(rnp_atoms))
+    n_rnp.append(len(rnp_atoms))   #number of RNP atoms each timestep
 
 if make_snapshots:
     ppmFiles = glob.glob(out_folder+'/run'+str(run_number)+'/image_files/*.ppm')
@@ -1098,6 +1102,9 @@ print("Genes have been active for "+str(round(100*total_active_steps/(NRuns-t_ac
  
 # if total_active_steps==0:
 #     os.rmdir(out_folder+'/run'+str(run_number)+'/image_files')
+
+
+
     
 for i in range(len(ser5p_around_cluster)):
     ser5pAroundClusterFile.write(str((i+1)*delt)+",")
@@ -1178,6 +1185,12 @@ for var_i in range(2):
         for x in event_array:
             myFile.write(str(x)+"\n")
         myFile.close()
+        
+# SAVE NUMBER OF RNPs TO AN OUTPUT FILE
+#myFile = open(out_folder + "/run"+str(run_number)+"/rnp_counts.txt", "w")
+#for tcount in n_rnp:
+#    myFile.write(f"{tcount}\n")
+#myFile.close()
               
 if make_plots:
         

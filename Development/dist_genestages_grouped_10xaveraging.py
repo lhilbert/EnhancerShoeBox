@@ -83,7 +83,8 @@ for condition in conditions:
                     J = [x for x in range(1, len(gene_state)) if int(gene_state[x])==2]
          
                     #J = [int(x) for x in range(1, len(gene_state)) if int(gene_state[x]) == 2]
-                    if i_r%5!=0:   #For every run except each 5th one, append values to the current group.When you reach the 5th run, calculate the averages of the last 5 runs, append them to the output, and reset the temporary lists.
+                    #Averaging over 10 consecutive runs
+                    if i_r%20!=0:   #For every run except each 10th one, append values to the current group.When you reach the 10th run, calculate the averages of the last 10 runs, append them to the output, and reset the temporary lists.
                         s5p_group.extend(s5p_promoter)
                         active_percent_group.append(100*len(J)/(len(gene_state)-150))
                         #active_percent_group.append(0.054054*len(J))
@@ -107,7 +108,7 @@ for condition in conditions:
                         activation_distance_group = []
                         
                         
-df_summary.to_csv('summary_contact_grouped_Thresholds10-100_test.txt')
+df_summary.to_csv('summary_contact_grouped_Thresholds10-100_20xaveraged.txt')
         
 
 # %%
