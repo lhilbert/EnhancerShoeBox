@@ -12,6 +12,12 @@ x = data[:,2]
 y = data[:,3]
 z = data[:,4]
 
+# Fixing the range of X, Y, Z axes
+# Global coordinate limits for stable movie
+#global_xmin, global_xmax = x.min(), x.max()
+#global_ymin, global_ymax = y.min(), y.max()
+#global_zmin, global_zmax = z.min(), z.max()
+
 frame = np.max(timesteps)
 
 mask = timesteps == frame
@@ -79,3 +85,5 @@ ax.set_title(f"Smooth condensate surface (step {int(frame)})")
 plt.savefig(f"smooth_condensate_{int(frame)}.jpg", dpi=300)
 plt.show()
 
+
+exit()
