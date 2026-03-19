@@ -226,5 +226,243 @@ plt.savefig(os.path.join(run_path,f"sphericity_rollingband_run{run_nr}.svg"))
 
 plt.close()
 
+# ------------------------------------------------------------
+# 4) CROSS-CORRELATION: SPHERICITY vs GENE STATE
+# ------------------------------------------------------------
+
+# Build activation signal using weighted gene states
+activation = []
+
+for t in timesteps:
+
+    if t in active_frames:
+        activation.append(1.0)
+
+    elif t in approach_frames:
+        activation.append(0.5)
+
+    elif t in recede_frames:
+        activation.append(0.5)
+
+    elif t in induced_frames:
+        activation.append(0.0)
+
+    else:
+        activation.append(0.0)
+
+activation = np.array(activation)
+
+
+# ------------------------------------------------------------
+# NORMALIZE SIGNALS (mean-centered)
+# ------------------------------------------------------------
+
+psi_norm = psi - np.mean(psi)
+act_norm = activation - np.mean(activation)
+
+
+# ------------------------------------------------------------
+# CROSS-CORRELATION
+# ------------------------------------------------------------
+
+corr = np.correlate(psi_norm, act_norm, mode="full")
+
+# Lag values
+lags = np.arange(-len(psi_norm)+1, len(psi_norm))
+
+# Normalize correlation
+corr = corr / (np.std(psi_norm) * np.std(act_norm) * len(psi_norm))
+
+
+# ------------------------------------------------------------
+# PLOT CROSS-CORRELATION
+# ------------------------------------------------------------
+
+plt.figure(figsize=(6,6))
+
+plt.plot(lags, corr, color="black", linewidth=2)
+
+plt.axvline(0, color="gray", linestyle="--")
+
+plt.xlabel("Time lag")
+plt.ylabel("Cross-correlation")
+
+plt.title("Sphericity vs gene activation cross-correlation")
+
+plt.tight_layout()
+
+plt.savefig(os.path.join(run_path,
+        f"sphericity_activation_crosscorr_run{run_nr}.svg"))
+
+plt.close()
+
+# ------------------------------------------------------------
+# 5) EVENT-ALIGNED SPHERICITY AROUND ACTIVATION
+# ------------------------------------------------------------
+# This analysis aligns sphericity traces around the first activation event
+# and shows ψ dynamics before and after gene activation
+
+# detect activation start frame
+active_sorted = sorted(active_frames)
+
+activation_start = None
+
+for i in range(1, len(active_sorted)):
+    if active_sorted[i] == active_sorted[i-1] + 1:
+        activation_start = active_sorted[i-1]
+        break
+
+# fallback if only single activation frame exists
+if activation_start is None and len(active_sorted) > 0:
+    activation_start = active_sorted[0]
+
+if activation_start is None:
+    print("No activation event detected. Skipping event-aligned analysis.")
+
+else:
+
+    # window size around activation
+    window = 200
+
+    relative_time = []
+    psi_window = []
+
+    for t, p in zip(timesteps, psi):
+
+        dt = t - activation_start
+
+        if -window <= dt <= window:
+            relative_time.append(dt)
+            psi_window.append(p)
+
+    relative_time = np.array(relative_time)
+    psi_window = np.array(psi_window)
+
+    # --------------------------------------------------------
+    # PLOT EVENT-ALIGNED TRACE
+    # --------------------------------------------------------
+
+    plt.figure(figsize=(6,6))
+
+    plt.scatter(relative_time, psi_window, s=8, alpha=0.6)
+
+    plt.axvline(0, color="red", linestyle="--", linewidth=2)
+
+    plt.xlabel("Time relative to activation (frames)")
+    plt.ylabel(r'$\psi$')
+
+    plt.title("Event-aligned sphericity around gene activation")
+
+    plt.tight_layout()
+
+    plt.savefig(os.path.join(run_path,
+        f"sphericity_event_aligned_run{run_nr}.svg"))
+
+    plt.close()
+
+# ------------------------------------------------------------
+# 6) IMPROVED CROSS-CORRELATION (BASELINE-CORRECTED)
+# ------------------------------------------------------------
+
+# ------------------------------------------------------------
+# BUILD ACTIVATION SIGNAL (weighted states)
+# ------------------------------------------------------------
+
+activation = []
+
+for t in timesteps:
+
+    if t in active_frames:
+        activation.append(1.0)
+
+    elif t in approach_frames:
+        activation.append(0.5)
+
+    elif t in recede_frames:
+        activation.append(0.5)
+
+    elif t in induced_frames:
+        activation.append(0.0)
+
+    else:
+        activation.append(0.0)
+
+activation = np.array(activation)
+
+
+# ------------------------------------------------------------
+# LOCAL BASELINE SUBTRACTION FOR SPHERICITY
+# ------------------------------------------------------------
+
+psi_series = pd.Series(psi)
+
+# small window (captures fast fluctuations)
+psi_fast = psi_series.rolling(window=10, center=True).mean()
+
+# large window (captures slow baseline drift)
+psi_slow = psi_series.rolling(window=500, center=True).mean()
+
+# baseline-corrected signal
+psi_corrected = psi_fast - psi_slow
+
+# replace NaNs from edges
+psi_corrected = psi_corrected.fillna(0).to_numpy()
+
+
+# ------------------------------------------------------------
+# NORMALIZATION (mean subtraction)
+# ------------------------------------------------------------
+
+psi_norm = psi_corrected - np.mean(psi_corrected)
+act_norm = activation - np.mean(activation)
+
+
+# ------------------------------------------------------------
+# CROSS-CORRELATION
+# ------------------------------------------------------------
+
+corr = np.correlate(psi_norm, act_norm, mode="full")
+
+lags = np.arange(-len(psi_norm)+1, len(psi_norm))
+
+# normalize
+corr = corr / (np.std(psi_norm) * np.std(act_norm) * len(psi_norm))
+
+
+# ------------------------------------------------------------
+# LAG RESTRICTION (+/- 200)
+# ------------------------------------------------------------
+
+max_lag = 200
+
+mask = (lags >= -max_lag) & (lags <= max_lag)
+
+lags = lags[mask]
+corr = corr[mask]
+
+
+# ------------------------------------------------------------
+# PLOT IMPROVED CROSS-CORRELATION
+# ------------------------------------------------------------
+
+plt.figure(figsize=(6,6))
+
+plt.plot(lags, corr, color="black", linewidth=2)
+
+plt.axvline(0, color="red", linestyle="--", linewidth=2)
+
+plt.xlabel("Time lag")
+plt.ylabel("Cross-correlation")
+
+plt.title("Baseline-corrected sphericity vs activation")
+
+plt.tight_layout()
+
+plt.savefig(os.path.join(
+    run_path,
+    f"sphericity_activation_crosscorr_corrected_run{run_nr}.svg"
+))
+
+plt.close()
 
 print("Sliding window analysis completed.")
