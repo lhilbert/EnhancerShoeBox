@@ -7,9 +7,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import argparse
 
-# Event treatment: this script treats each time frame when the gene is "active" as the beginning of a new activation event, resulting in overlap of i numerous identical 'activation events', each with length (t-i). This results in artificial flatterning of the mean line.
-# Plots are generated basing on full MD trajectory; i.e. all 2000 simulation time frames - although the first 150 frames belong to equilibration and are not productive. Productive run consists of 1850 remaining frames.
-# time lag: t = 0 correspond to the first time frame (onset) when the activation event occur
+# Treatment of event: this script defines one activation event as everything between the end of 'approaching' and the beginning of 'receding' phase; one activation event can last for several (up till ca. 100) time frames.
+# The first 150 time frames (equilibration part) are excluded from data analysis and plotting.
+# Binary treatment of activation: active = 1.0, not active (induced, receding, approaching) = 0.0
 
 # ------------------------------------------------------------
 # ARGUMENT PARSING
@@ -30,7 +30,7 @@ run_end   = int(args.end.replace("run", ""))
 
 WINDOW_SMALL = 10
 WINDOW_LARGE = 500
-EVENT_WINDOW = 200   # +/- frames around activation
+EVENT_WINDOW = 200
 MAX_LAG = 200
 
 
@@ -60,7 +60,6 @@ for run_nr in range(run_start, run_end + 1):
 
     print(f"Processing run{run_nr}")
 
-    # files
     sph_file = os.path.join(run_path, "sphericity.txt")
     active_file   = os.path.join(run_path, f"dist_active_run{run_nr}.txt")
     induced_file  = os.path.join(run_path, f"dist_induced_run{run_nr}.txt")
@@ -82,55 +81,27 @@ for run_nr in range(run_start, run_end + 1):
     timesteps = sph_data[:,0].astype(int)
     psi = sph_data[:,1]
 
-    mask = timesteps >= 151
+    mask = timesteps >= 151 #remove the first 150 frames (equilibration phase)
     timesteps = timesteps[mask]
     psi = psi[mask]
 
-    # gene states
     active_frames   = set(np.loadtxt(active_file)[:,0].astype(int))
     induced_frames  = set(np.loadtxt(induced_file)[:,0].astype(int))
     approach_frames = set(np.loadtxt(approach_file)[:,0].astype(int))
     recede_frames   = set(np.loadtxt(recede_file)[:,0].astype(int))
 
-    # ----------------------------------------------------------------------------------------------------
-    # BUILD ACTIVATION SIGNAL (weights: 1 for active, 0 for induced and 0.5 for approaching and receding)
-    # ---------------------------------------------------------------------------------------------------
-    # optional: treat approaching/receding genes as "not active" = 0.0 weight
+    # --------------------------------------------------------
+    # BUILD ACTIVATION SIGNAL
+    # --------------------------------------------------------
 
-    activation = []
+    activation = np.array([1.0 if t in active_frames else 0.0 for t in timesteps])
 
-    for t in timesteps:
-
-        if t in active_frames:
-            activation.append(1.0)
-
-        #elif t in approach_frames:
-            #activation.append(0.5)
-
-        #elif t in recede_frames:
-            #activation.append(0.5)
-        
-        elif t in approach_frames:
-            activation.append(0.0)
-
-        elif t in recede_frames:
-            activation.append(0.0)
-
-        elif t in induced_frames:
-            activation.append(0.0)
-
-        else:
-            activation.append(0.0)
-
-    activation = np.array(activation)
-
-    # store full traces for ensemble correlation
     all_psi.append(psi)
     all_act.append(activation)
 
-    # ------------------------------------------------------------------------
-    # BASELINE CORRECTION: remove slow trends and keep only fast fluctuations
-    # -----------------------------------------------------------------------
+    # --------------------------------------------------------
+    # BASELINE CORRECTION
+    # --------------------------------------------------------
 
     psi_series = pd.Series(psi)
 
@@ -140,40 +111,52 @@ for run_nr in range(run_start, run_end + 1):
     psi_corr = (psi_fast - psi_slow).fillna(0).to_numpy()
 
     # --------------------------------------------------------
-    # FIND ACTIVATION EVENTS (induced → active)
+    # FIND ACTIVATION EVENTS
     # --------------------------------------------------------
 
     sorted_active = sorted(active_frames)
+    activation_events = []
 
-    activation_starts = []
+    if len(sorted_active) > 0:
 
-    for i in range(1, len(sorted_active)):
-        if sorted_active[i] == sorted_active[i-1] + 1:
-            activation_starts.append(sorted_active[i-1])
+        start = sorted_active[0]
+        prev  = sorted_active[0]
 
-    if len(activation_starts) == 0 and len(sorted_active) > 0:
-        activation_starts.append(sorted_active[0])
-    
+        for i in range(1, len(sorted_active)):
+
+            if sorted_active[i] == prev + 1:
+                prev = sorted_active[i]
+            else:
+                end = prev
+
+                # activation event start at the first time frame when the gene is active
+                activation_events.append(start)
+
+                start = sorted_active[i]
+                prev  = sorted_active[i]
+
+        # last block
+        end = prev
+        activation_events.append(start)
+
     # --------------------------------------------------------
-    # PRINT NUMBER OF EVENTS IN THIS RUN
+    # PRINT PER-RUN EVENTS
     # --------------------------------------------------------
 
-    n_events_run = len(activation_starts)
-
-    print(f"run{run_nr}, number of events per run: {n_events_run}")
+    print(f"run{run_nr}, number of events per run: {len(activation_events)}")
 
     # --------------------------------------------------------
-    # EXTRACT EVENT-ALIGNED WINDOWS
+    # EXTRACT EVENT WINDOWS
     # --------------------------------------------------------
 
-    for event in activation_starts:
+    for event_onset in activation_events:
 
         rel_t = []
         psi_evt = []
 
         for t, p in zip(timesteps, psi_corr):
 
-            dt = t - event
+            dt = t - event_onset   # alignment at activation onset
 
             if -EVENT_WINDOW <= dt <= EVENT_WINDOW:
                 rel_t.append(dt)
@@ -195,16 +178,14 @@ if len(all_event_traces) == 0:
 
 
 # ------------------------------------------------------------
-# ALIGN EVENTS TO COMMON GRID
+# ALIGN EVENTS
 # ------------------------------------------------------------
-#aligning psi around each activation: extract +/-200 frames around each activation event
 
 common_time = np.arange(-EVENT_WINDOW, EVENT_WINDOW + 1)
 
 aligned_traces = []
 
 for t_arr, psi_arr in zip(all_event_times, all_event_traces):
-
     interp = np.interp(common_time, t_arr, psi_arr)
     aligned_traces.append(interp)
 
@@ -212,57 +193,58 @@ aligned_traces = np.array(aligned_traces)
 
 
 # ------------------------------------------------------------
-# PLOT 1: RUN-AVERAGED EVENT TRAJECTORIES 
+# PLOT 1: events averaged peer run, plotted averaged sphericity for each run
 # ------------------------------------------------------------
 
 plt.figure(figsize=(6,6))
 
 run_traces = []
+plotted_runs = []
 
-for run_nr in range(run_start, run_end + 1):
+all_event_runs_arr = np.array(all_event_runs)
+unique_runs = sorted(set(all_event_runs_arr))
 
-    # collect events for this run
-    indices = [i for i, r in enumerate(all_event_runs) if r == run_nr]
+print("\n--- DEBUG: EVENTS PER RUN ---")
 
-    if len(indices) == 0:
+for run_nr in unique_runs:
+
+    indices = np.where(all_event_runs_arr == run_nr)[0]
+    n_events = len(indices)
+
+    print(f"run{run_nr}: {n_events} detected events")
+
+    if n_events == 0:
         continue
 
     run_events = aligned_traces[indices]
 
-    # mean trajectory for this run
     run_mean = np.mean(run_events, axis=0)
 
     run_traces.append(run_mean)
+    plotted_runs.append(run_nr)
 
-    # plot one gray line per run
-    plt.plot(
-        common_time,
-        run_mean,
-        color="gray",
-        alpha=0.8,
-        linewidth=1
-    )
+    plt.plot(common_time, run_mean, color="gray", alpha=0.8, linewidth=1)
 
-run_traces = np.array(run_traces)
+print(f"\n--- DEBUG: NUMBER OF RUNS PLOTTED = {len(plotted_runs)} ---\n")
 
-# global mean across runs
-mean_trace = np.mean(run_traces, axis=0)
+if len(run_traces) > 0:
+    run_traces = np.array(run_traces)
 
-plt.plot(common_time, mean_trace, color="red", linewidth=3)
+    mean_trace = np.mean(aligned_traces, axis=0)
+
+    plt.plot(common_time, mean_trace, color="red", linewidth=3)
 
 plt.axvline(0, color="black", linestyle="--")
-
-plt.xlabel("Time relative to activation")
+plt.xlabel("Time relative to activation onset")
 plt.ylabel(r'$\psi$ (baseline corrected)')
-
 plt.title("Run-averaged sphericity")
 
 plt.tight_layout()
-plt.savefig("ensemble_event_overlay.svg")
+plt.savefig("ensemble_event_overlay_corrected.svg")
 plt.close()
 
 # ------------------------------------------------------------
-# PLOT 2: ENSEMBLE MEAN + STD
+# PLOT 2: mean trajectory and standard deviation
 # ------------------------------------------------------------
 
 std_trace = np.std(aligned_traces, axis=0)
@@ -278,68 +260,75 @@ plt.fill_between(common_time,
 plt.axvline(0, color="red", linestyle="--")
 
 plt.xlabel("Time relative to activation")
-plt.ylabel(r'$\psi$')
+plt.ylabel(r'$\psi$ (baseline corrected)')
 
 plt.title("Ensemble-averaged sphericity")
 
 plt.tight_layout()
-plt.savefig("ensemble_mean_band.svg")
+plt.savefig("ensemble_mean_band_corrected.svg")
 plt.close()
 
-
 # ------------------------------------------------------------
-# PLOT 3: ENSEMBLE CROSS-CORRELATION
+# PLOT 3: ENSEMBLE CROSS-CORRELATION (CALCULATED PER RUN and AVERAGED AFTERWARDS)
 # ------------------------------------------------------------
 
-# concatenate all runs (ensemble pooling)
-psi_all = np.concatenate(all_psi)
-act_all = np.concatenate(all_act)
+all_corrs = []
 
-# baseline correction on pooled signal
-psi_series = pd.Series(psi_all)
+for psi, act in zip(all_psi, all_act):
 
-psi_fast = psi_series.rolling(window=WINDOW_SMALL, center=True).mean()
-psi_slow = psi_series.rolling(window=WINDOW_LARGE, center=True).mean()
+    # baseline correction
+    psi_series = pd.Series(psi)
 
-psi_corr = (psi_fast - psi_slow).fillna(0).to_numpy()
+    psi_fast = psi_series.rolling(window=WINDOW_SMALL, center=True).mean()
+    psi_slow = psi_series.rolling(window=WINDOW_LARGE, center=True).mean()
 
-# normalization (ensemble mean/variance)
-psi_norm = psi_corr - np.mean(psi_corr)
-act_norm = act_all - np.mean(act_all)
+    psi_corr = (psi_fast - psi_slow).fillna(0).to_numpy()
 
-corr = np.correlate(psi_norm, act_norm, mode="full")
+    # normalization
+    psi_norm = psi_corr - np.mean(psi_corr)
+    act_norm = act - np.mean(act)
 
-lags = np.arange(-len(psi_norm)+1, len(psi_norm))
+    # correlation
+    corr = np.correlate(psi_norm, act_norm, mode="full")
 
-corr = corr / (np.std(psi_norm) * np.std(act_norm) * len(psi_norm))
+    lags = np.arange(-len(psi_norm)+1, len(psi_norm))
 
-# restrict lag
-mask = (lags >= -MAX_LAG) & (lags <= MAX_LAG)
+    corr = corr / (np.std(psi_norm) * np.std(act_norm) * len(psi_norm))
 
-lags = lags[mask]
-corr = corr[mask]
+    # restrict lag
+    mask = (lags >= -MAX_LAG) & (lags <= MAX_LAG)
+
+    all_corrs.append(corr[mask])
+
+# convert to array
+all_corrs = np.array(all_corrs)
+
+# average over runs
+mean_corr = np.mean(all_corrs, axis=0)
+
+lags = np.arange(-MAX_LAG, MAX_LAG + 1)
 
 # plot
 plt.figure(figsize=(6,6))
 
-plt.plot(lags, corr, color="black", linewidth=2)
+plt.plot(lags, mean_corr, color="black", linewidth=2)
 plt.axvline(0, color="red", linestyle="--")
 
 plt.xlabel("Time lag")
 plt.ylabel("Cross-correlation")
 
-plt.title("Ensemble-normalized cross-correlation")
+plt.title("Ensemble-normalized cross-correlation (per run avg)")
 
 plt.tight_layout()
-plt.savefig("ensemble_cross_correlation.svg")
+plt.savefig("ensemble_cross_correlation_corrected.svg")
 plt.close()
 
 # ------------------------------------------------------------
-# PLOT 4: ALL RUNS, BASELINE-CORRECTED PER-EVENT TRAJECTORIES
+# PLOT 4: ALL EVENTS (no per run averaging)
 # ------------------------------------------------------------
 
 plt.figure(figsize=(6,6))
-# store interpolated event traces for global mean
+
 all_event_traces_plot4 = []
 
 for run_nr in range(run_start, run_end + 1):
@@ -355,12 +344,8 @@ for run_nr in range(run_start, run_end + 1):
     if not os.path.exists(sph_file) or not os.path.exists(active_file):
         continue
 
-    # --------------------------------------------------------
-    # LOAD DATA
-    # --------------------------------------------------------
-
+    # load data
     sph_data = np.loadtxt(sph_file, delimiter=",", skiprows=1)
-
     timesteps = sph_data[:,0].astype(int)
     psi = sph_data[:,1]
 
@@ -368,144 +353,103 @@ for run_nr in range(run_start, run_end + 1):
     timesteps = timesteps[mask]
     psi = psi[mask]
 
-    # --------------------------------------------------------
-    # BASELINE CORRECTION 
-    # --------------------------------------------------------
-
+    # baseline correction
     psi_series = pd.Series(psi)
-
     psi_fast = psi_series.rolling(window=WINDOW_SMALL, center=True).mean()
     psi_slow = psi_series.rolling(window=WINDOW_LARGE, center=True).mean()
+    psi_corr = (psi_fast - psi_slow).fillna(0).to_numpy()
 
-    psi_corr = (psi_fast - psi_slow).to_numpy()
-
-    # --------------------------------------------------------
-    # LOAD ACTIVE FRAMES
-    # --------------------------------------------------------
-
+    # load active frames
     active_all = np.loadtxt(active_file)[:,0].astype(int)
+    active_all = np.sort(active_all)
 
-    # --------------------------------------------------------
-    # FIND TRUE EVENT STARTS
-    # --------------------------------------------------------
-
-    event_starts = []
-
+    # detect blocks
+    events = []
     if len(active_all) > 0:
-        event_starts.append(active_all[0])
+        start = active_all[0]
+        prev = active_all[0]
 
         for i in range(1, len(active_all)):
-            if active_all[i] != active_all[i-1] + 1:
-                event_starts.append(active_all[i])
+            if active_all[i] == prev + 1:
+                prev = active_all[i]
+            else:
+                end = prev
+                center = (start + end) // 2
+                #events.append(center)
+                events.append(start)
 
-    # --------------------------------------------------------
-    # EXTRACT AND PLOT EACH EVENT
-    # --------------------------------------------------------
+                start = active_all[i]
+                prev = active_all[i]
 
-    for event in event_starts:
+        # last event
+        end = prev
+        center = (start + end) // 2
+        #events.append(center)
+        events.append(start)
 
-        t_min = event - EVENT_WINDOW
-        t_max = event + EVENT_WINDOW
+    # extract and plot
+    #for center in events:
+    for onset in events:
 
-        mask = (timesteps >= t_min) & (timesteps <= t_max)
+        #t_rel = timesteps - center
+        t_rel = timesteps - onset
+        mask_evt = (t_rel >= -EVENT_WINDOW) & (t_rel <= EVENT_WINDOW)
 
-        t_rel = timesteps[mask] - event
-        psi_rel = psi_corr[mask]
+        t_evt = t_rel[mask_evt]
+        psi_evt = psi_corr[mask_evt]
 
-        if len(t_rel) == 0:
+        if len(t_evt) < 2:
             continue
 
-        plt.plot(
-            t_rel,
-            psi_rel,
-            color="gray",
-            linewidth=0.8,
-            alpha=0.6
-        )
-        
-        # clean + sort before interpolation
-        valid = np.isfinite(t_rel) & np.isfinite(psi_rel)
+        plt.plot(t_evt, psi_evt, color="gray", alpha=0.4)
 
-        t_clean = t_rel[valid]
-        psi_clean = psi_rel[valid]
-
-        if len(t_clean) < 2:
-            continue
-
-        # ensure increasing time
-        order = np.argsort(t_clean)
-        t_clean = t_clean[order]
-        psi_clean = psi_clean[order]
-
-        # remove duplicate time points
-        t_unique, unique_idx = np.unique(t_clean, return_index=True)
-        psi_unique = psi_clean[unique_idx]
-
-        # interpolate
-        interp = np.interp(common_time, t_unique, psi_unique)
-
+        interp = np.interp(common_time, t_evt, psi_evt)
         all_event_traces_plot4.append(interp)
 
-# ------------------------------------------------------------
-
-# compute and plot global mean trajectory (red line)
+# global mean
 if len(all_event_traces_plot4) > 0:
-    mean_trace_plot4 = np.mean(np.array(all_event_traces_plot4), axis=0)
-
-    plt.plot(
-        common_time,
-        mean_trace_plot4,
-        color="red",
-        linewidth=3
-    )
+    mean_evt = np.mean(all_event_traces_plot4, axis=0)
+    plt.plot(common_time, mean_evt, color="red", linewidth=3)
 
 plt.axvline(0, color="black", linestyle="--")
-
-plt.xlabel("Time relative to activation")
+plt.xlabel("Time relative to activation onset")
 plt.ylabel(r'$\psi$ (baseline corrected)')
-plt.title("All runs: per-event sphericity trajectories")
+plt.title("All events (corrected)")
 
 plt.tight_layout()
-plt.savefig("ensemble_event_overlay_per_event.svg")
+plt.savefig("ensemble_event_overlay_per_event_corrected.svg")
 plt.close()
 
+
 # ------------------------------------------------------------
-# PLOT 5: ENSEMBLE MEAN + STANDARD ERROR OF MEAN
+# PLOT 5 (mean sphercity + standard error of mean)
 # ------------------------------------------------------------
 
-# number of events (samples)
 n_events = aligned_traces.shape[0]
-
-# standard deviation across events
-std_trace = np.std(aligned_traces, axis=0)
-
-# standard error of the mean
-sem_trace = std_trace / np.sqrt(n_events)
+sem_trace = np.std(aligned_traces, axis=0) / np.sqrt(n_events)
 
 plt.figure(figsize=(6,6))
 
-plt.plot(common_time, mean_trace, color="black", linewidth=2)
+plt.plot(common_time, mean_trace, linewidth=2)
+plt.fill_between(common_time,
+                 mean_trace - sem_trace,
+                 mean_trace + sem_trace,
+                 alpha=0.3)
 
-plt.fill_between(
-    common_time,
-    mean_trace - sem_trace,
-    mean_trace + sem_trace,
-    alpha=0.3
-)
-
-plt.axvline(0, color="red", linestyle="--")
+plt.axvline(0, linestyle="--")
 
 plt.xlabel("Time relative to activation")
-plt.ylabel(r'$\psi$')
+plt.ylabel(r'$\psi$ (baseline corrected)')
 
 plt.title("Ensemble-averaged sphericity (SEM)")
 
 plt.tight_layout()
-plt.savefig("ensemble_mean_stderror.svg")
+plt.savefig("ensemble_mean_stderror_corrected.svg")
 plt.close()
 
+
 # ------------------------------------------------------------
-# SUMMARY PRINT
+# FINAL SUMMARY PRINT
 # ------------------------------------------------------------
 
 n_analyzed_runs = len(set(all_event_runs))
