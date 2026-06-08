@@ -5,6 +5,7 @@
 #	o files dist_[gene_stage].txt and ddist_[gene_stage].txt are saved separately for each simulation run
 #	o the first 150 equilibration time steps are excluded from data saved in dist_[gene_stage].txt and ddist_[gene_stage].txt files
 #	o the vector position of each Ser5P PolII molecule is traced in (X,Y,Z) space and saved in order to calculate condensate sphericity and cluster morphology
+# Contrary to run_single_upgrade.py (which pre-defines search_radius for clustering), this MD simulation script applies global DBSCAN for condensate detection, selects largest and closer to enhancer condensate and applies alpha-shape on that set
 
 from lammps import lammps, IPyLammps
 import math
@@ -1141,7 +1142,8 @@ for i in range(NRuns+treatment_duration):
         # ----- Select Ser5P near enhancer -----
 
         #search_radius = 5 * sig_chromatin #in nm
-        search_radius = 3   #in chromatin monomers
+        #search_radius = 3   #in chromatin monomers
+        clustering = DBSCAN(eps=1.1, min_samples=5).fit(ser5p_positions)
 
         distances = np.linalg.norm(ser5p_positions - enhancer_center, axis=1)
 

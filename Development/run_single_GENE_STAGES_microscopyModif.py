@@ -1,11 +1,6 @@
 # To add a new cell, type '# %%'
 # To add a new markdown cell, type '# %% [markdown]'
 # %%
-# This MD simulation script is an upgrade to run_single_GENE_STAGES.py. New functions introduced in this script:
-#	o files dist_[gene_stage].txt and ddist_[gene_stage].txt are saved separately for each simulation run
-#	o the first 150 equilibration time steps are excluded from data saved in dist_[gene_stage].txt and ddist_[gene_stage].txt files
-#	o the vector position of each Ser5P PolII molecule is traced in (X,Y,Z) space and saved in order to calculate condensate sphericity and cluster morphology
-
 from lammps import lammps, IPyLammps
 import math
 import random
@@ -224,6 +219,7 @@ def getAtomProperties(LammpsObject, atomVector, n_columns):
 def getAtomPairs(LammpsObject, atomPairVector, thisGroup, n_columns):
     # atomPairVector should be an output of Group.lmp.extract_compute with number of rows as pairwise interactions between atoms in the group corresponding to the compute
     # only n_columns=2 columns allowed. somehow more columns messes this up
+    # IPs - interacting particles
     if atomPairVector:
         # count number of atoms in the group corresponding to the compute
         Group.L.variable('atomCount equal count('+thisGroup+')')
@@ -237,6 +233,7 @@ def getAtomPairs(LammpsObject, atomPairVector, thisGroup, n_columns):
     else:
         return np.empty((0,n_columns))
 
+"""
 def makeFakeMicroscopyImages(atomPositions, atomTypes, sigma, time, out_folder, run_number):
     
     natoms = len(atomTypes)
@@ -300,6 +297,90 @@ def makeFakeMicroscopyImages(atomPositions, atomTypes, sigma, time, out_folder, 
     ax.invert_yaxis()
     plt.savefig(out_folder+'/run'+str(run_number)+"/microscopy_files/ActinImage_"+str(time).zfill(7)+".png", bbox_inches="tight", pad_inches=0)
     
+    """
+def makeFakeMicroscopyImages(atomPositions, atomTypes, sigma, time, out_folder, run_number):
+    """
+    Generate multi-channel 3D microscopy image stack (OME-TIFF)
+    Channels:
+      0 = Ser5P
+      1 = Ser2P
+      2 = Chromatin
+      3 = Gene
+      4 = Actin
+    Axis order: (C, Z, Y, X)
+    """
+
+    import os
+    import tifffile
+
+    natoms = len(atomTypes)
+
+    # Histogram bin edges (same as original code)
+    x_edges = np.linspace(-11, 11, 22)
+    y_edges = np.linspace(-9, 9, 18)
+    z_edges = np.linspace(-7, 7, 14)
+
+    def make_channel(atom_type_filter):
+        atoms = np.array([j for j in range(natoms) if atomTypes[j] in atom_type_filter])
+        if len(atoms) == 0:
+            return np.zeros((len(z_edges) - 1,
+                             len(y_edges) - 1,
+                             len(x_edges) - 1), dtype=np.float32)
+
+        positions = atomPositions[atoms, :]
+
+        H, _ = np.histogramdd(
+            positions,
+            bins=(x_edges, y_edges, z_edges)
+        )
+
+        # Convert from (X, Y, Z) → (Z, Y, X)
+        H = np.transpose(H, (2, 1, 0))
+
+        return gaussian_filter(H, sigma=sigma).astype(np.float32)
+
+    # Generate channels
+    ser5p_img = make_channel([8])
+    ser2p_img = make_channel([7, 11])
+    chromatin_img = make_channel([1, 2, 6, 7, 9, 10, 11])
+    gene_img = make_channel([2, 6, 7, 10, 11])
+    actin_img = make_channel([3])
+
+    # Stack into (C, Z, Y, X)
+    image_stack = np.stack([
+        ser5p_img,
+        ser2p_img,
+        chromatin_img,
+        gene_img,
+        actin_img
+    ], axis=0)
+
+    # Output path
+    out_dir = os.path.join(
+        out_folder,
+        f"run{run_number}",
+        "microscopy_files"
+    )
+    os.makedirs(out_dir, exist_ok=True)
+
+    out_path = os.path.join(
+        out_dir,
+        f"synthetic_microscopy_{str(time).zfill(7)}.ome.tif"
+    )
+
+    # Write OME-TIFF (Bio-Formats compatible)
+    tifffile.imwrite(
+        out_path,
+        image_stack,
+        photometric="minisblack",
+        metadata={
+            "axes": "CZYX",
+            "Channel": {
+                "Name": ["Ser5P", "Ser2P", "Chromatin", "Gene", "Actin"]
+            }
+        }
+    )
+
 def progress_bar(current, total, name, bar_length = 20):
     percent = float(current) * 100 / total
     arrow   = '-' * int(percent/100 * bar_length - 1) + '>'
@@ -349,7 +430,7 @@ for opt, arg in opts:
 # if run_number<=100:
 #     make_snapshots = 1
      
-folders_to_make = ["figures", "image_files", "summaries"]
+folders_to_make = ["figures", "image_files", "summaries", "microscopy_files"]
 if not os.path.exists(out_folder):
     os.makedirs(out_folder)
 if not os.path.exists(out_folder+"/parallel_counter"):
@@ -411,7 +492,7 @@ elif box==24:
 length_gene=5
 NChromosomes=25
 make_plots=1
-make_microscopy=0
+make_microscopy=1
 print_verbose=0
 move_added_atoms=1
 move_removed_atoms=1
@@ -429,8 +510,6 @@ filEndEffectRadius=3 #3
 monomerEffectRadius=2 #2
 pol2release_radius=3
 cluster_r = np.linspace(0.65, 2.5, 50)
-#this creates 50 radii values between 0.65 and 2.5 around condensate
-#condensate_eps = 0.9 * sig_chromatin #distance between neighboring Ser5P molecules, which defines if they belong together
 
 # RBP -> RNP conversion
 transcription_rnp_radius=2.5
@@ -702,11 +781,6 @@ gene_active_duration = [0] * len(inactive_gene_lociStart)
 marked_for_activation=[]
 delay_activation=[]
 
-#Data saved in file ser5pAroundCluster.txt:
-#Column	1: Simulation time [min]
-#Column 2...N: Number of Ser5P molecules within increasing distance thresholds around the enhancer cluster; the counts are not cumulative
-#ser5pAroundCluster.txt is a time-resolved radial distribution histogram of Ser5P Pol II around the enhancer cluster
-
 myGeneFile = open(out_folder+"/run"+str(run_number)+"/geneTrack.txt", "w")
 ser5pAroundClusterFile = open(out_folder+"/run"+str(run_number)+"/ser5pAroundCluster.txt", "w")
 ser5pAroundClusterFile.write("t,")
@@ -715,18 +789,6 @@ for j in range(len(cluster_r[1:])):
         ser5pAroundClusterFile.write(str(cluster_r[j+1])+",")
     else:
         ser5pAroundClusterFile.write(str(cluster_r[j+1])+"\n")
-        
-
-               
-# Create output files saving Ser5P (X,Y,Z) positions and condensate sphericity
-ser5pPosFile = open(out_folder+'/run'+str(run_number)+'/ser5p_position.txt', "w")
-#ser5pPosFile.write("timestep,x,y,z\n")
-ser5pPosFile.write("timestep,particle_id,x,y,z\n")
-
-sphericityFile = open(out_folder+'/run'+str(run_number)+'/sphericity.txt', "w")
-sphericityFile.write("timestep,sphericity\n")
-                
-dbscanLogFile = open(out_folder + "/run" + str(run_number) + "/dbscan_log_run" + str(run_number) + ".txt", "w")
                 
 # RUNS
 for i in range(NRuns+treatment_duration):
@@ -895,7 +957,7 @@ for i in range(NRuns+treatment_duration):
     if i%t_gene_induction==0 and i>=t_induction_on and i<t_induction_off:
         if print_verbose:
             print('Inducing '+str(round(fraction_induce*100))+' percent of '+str(len(inactive_gene_lociStart))+' inactive genes.')
-        loci_to_induce = random.sample(inactive_gene_lociStart, math.ceil(fraction_induce*len(inactive_gene_lociStart)))  #randomly select a subset of inactive genes (loci) to be induced during this induction step
+        loci_to_induce = random.sample(inactive_gene_lociStart, math.ceil(fraction_induce*len(inactive_gene_lociStart)))
         for j in loci_to_induce:
             for x in range(j, j+length_gene):
                 Group.L.set('atom', x, 'type', 6)
@@ -1011,8 +1073,6 @@ for i in range(NRuns+treatment_duration):
     rnp_atoms_list = list(rnp_atoms)
     rbp_atoms_list = list(rbp_atoms)
     
-    #The script gathers atom positions and uses positions of RBP / RNP particles to compute distances, clusters, and to decide which RBPs will convert to RNPs:
-    
     if i>=t_transcription_on and i<t_transcription_off and i%t_rbprnp==0:
         active_genes_transcribing = random.sample(active_gene_lociStart, math.ceil(p_rbprnp*len(active_gene_lociStart)))
         if print_verbose:
@@ -1025,7 +1085,6 @@ for i in range(NRuns+treatment_duration):
         ds = cdist(rbp_positions, active_gene_positions, 'euclidean')
         IPs = ds<transcription_rnp_radius
         I = [x for x in range(len(IPs)) if IPs[x].any()]
-        #The code changes atom types to convert particles between RBP and RNP states. Here: when RBP particles are recruited to active genes they are converted to type 5:
         for tbc in I:
             to_be_converted=rbp_atoms[tbc]
             rnp_atoms_list.append(to_be_converted)
@@ -1043,8 +1102,7 @@ for i in range(NRuns+treatment_duration):
             for j in rnp_to_switch:
                 rnp_atoms_copy.remove(j)
                 rbp_atoms_copy.append(j)
-                Group.L.set('atom', j, 'type', 4)  #convert RNP → RBP: actively change particle identity to model assembly/disassembly
-                #maintaining lists of which atom indices are RBPs or RNPs to use them to compute positions and do conversions:
+                Group.L.set('atom', j, 'type', 4)
             rnp_atoms = np.array(rnp_atoms_copy)   
             rbp_atoms = np.array(rbp_atoms_copy) 
         # RBP.respawn()
@@ -1093,183 +1151,18 @@ for i in range(NRuns+treatment_duration):
         x=2
     else:
         x=0
-    myGeneFile.write(str((i+1)*delt)+","+str(PromoterPositions[0,0]*sig_chromatin)+","+str(PromoterPositions[0,1]*sig_chromatin)+","+str(PromoterPositions[0,2]*sig_chromatin)+","+str(d_rp[-1][0]*sig_chromatin)+","+str(d_rg[-1][0]*sig_chromatin)+","+str(ser5p_around_promoter[-1][0])+","+str(ser5p_around_gene[-1][0])+","+str(x)+"\n")   #write to the geneTrack.txt file
+    myGeneFile.write(str((i+1)*delt)+","+str(PromoterPositions[0,0]*sig_chromatin)+","+str(PromoterPositions[0,1]*sig_chromatin)+","+str(PromoterPositions[0,2]*sig_chromatin)+","+str(d_rp[-1][0]*sig_chromatin)+","+str(d_rg[-1][0]*sig_chromatin)+","+str(ser5p_around_promoter[-1][0])+","+str(ser5p_around_gene[-1][0])+","+str(x)+"\n")
+
+    # Synthetic microscopy images
+    atomPositions = np.reshape(np.ctypeslib.as_array(Group.lmp.gather_atoms('x',1,3)), ((Group.L.system.natoms,3)))
+    atomTypes = np.reshape(np.ctypeslib.as_array(Group.lmp.gather_atoms('type',0,1)), ((Group.L.system.natoms,1)))    
+    if (i+1)%10==0 and make_microscopy:
+        makeFakeMicroscopyImages(atomPositions, atomTypes, 1, (i+1)*tRun, out_folder, run_number)
 
     # CLUSTER AROUND REGULATORY REGION
-   
-    
     ser5p_around_cluster.append([])
     ser5p_positions = atomPositions[[x-1 for x in ser5p_atoms],:]
     reg_positions = atomPositions[[x-1 for x in regulatory_atoms],:]
-    
-    # ----- Detect enhancer condensate and save particle positions -----
-
-    from sklearn.cluster import DBSCAN
-    from scipy.spatial import ConvexHull
-
-    sphericity = 0
-
-
-
-    #if len(ser5p_positions) > 10:
-        #enhancer_center = np.mean(reg_positions, axis=0)
-        #clustering = DBSCAN(eps=condensate_eps, min_samples=5).fit(ser5p_positions)
-        #labels = clustering.labels_
-        #unique_labels = set(labels)
-        #unique_labels.discard(-1)
-        #closest_cluster_indices = None
-        #min_dist = np.inf
-        #for label in unique_labels:
-            #cluster_indices = np.where(labels == label)[0]
-            #cluster_points = ser5p_positions[cluster_indices]
-            #if len(cluster_points) < 20:
-                #continue
-            #cluster_center = np.mean(cluster_points, axis=0)
-            #dist = np.linalg.norm(cluster_center - enhancer_center)
-            #if dist < min_dist:
-                #min_dist = dist
-                #closest_cluster_indices = cluster_indices
-                
-    #print("Step", i, "total Ser5P:", len(ser5p_positions), "near enhancer:", len(candidate_positions))
-    print("Step", i, "total Ser5P:", len(ser5p_positions))
-                
-                               
-    if len(ser5p_positions) > 10:
-
-        enhancer_center = np.mean(reg_positions, axis=0)
-
-        # ----- Select Ser5P near enhancer -----
-
-        #search_radius = 5 * sig_chromatin #in nm
-        search_radius = 3   #in chromatin monomers
-
-        distances = np.linalg.norm(ser5p_positions - enhancer_center, axis=1)
-
-        near_indices = np.where(distances < search_radius)[0]
-        
-        print("Step", i, "particles near enhancer:", len(near_indices))   #checking the number of Ser5P near enhancer, which can possibly form the condensate
-        dbscanLogFile.write(f"Step {i} particles near enhancer: {len(near_indices)}\n")
-
-        if len(near_indices) > 10:
-
-            candidate_positions = ser5p_positions[near_indices]  #positions of Ser5P molecules which possibly contribute to the cluster formation
-            candidate_ids = np.array(ser5p_atoms)[near_indices]
-
-            # ----- Run DBSCAN only on nearby particles -----
-
-            #clustering = DBSCAN(eps=0.9*sig_chromatin, min_samples=6).fit(candidate_positions)
-            clustering = DBSCAN(eps=1.1, min_samples=5).fit(candidate_positions) #eps defines the distance between neighboring Ser5P particles allowing to treat them as 'connected'
-                                                                                 #higher number of min_samples requires denser packaging of Ser5P neighboring molecules in order to treat them as 'connected'
-            labels = clustering.labels_
-
-            unique_labels = set(labels)
-            unique_labels.discard(-1)
-
-            largest_cluster = None
-            largest_size = 0
-
-            for label in unique_labels:
-
-                cluster_indices = np.where(labels == label)[0]
-
-                if len(cluster_indices) > largest_size:
-
-                    largest_cluster = cluster_indices
-                    largest_size = len(cluster_indices)
-                    
-            print("Cluster sizes:", [np.sum(labels == l) for l in unique_labels])
-            dbscanLogFile.write(f"Step {i} Cluster sizes: {[np.sum(labels == l) for l in unique_labels]}\n")
-            
-            noise = np.sum(labels == -1)
-            print("Noise particles:", noise)
-            dbscanLogFile.write(f"Step {i} Noise particles: {noise}\n")     
-             
-            print("Step", i, "Condensate size:", largest_size)
-            dbscanLogFile.write(f"Step {i} Condensate size: {largest_size}\n")
-            #print("Condensate size:", largest_size)   #check if DBSCAN identifies the condensate properly
-            #print("coordinate range:", np.min(atomPositions), np.max(atomPositions))
-            #print("Cluster sizes:", [np.sum(labels == l) for l in unique_labels])
-            print("Step", i, "min distance:", np.min(distances), "max distance:", np.max(distances))
-            dbscanLogFile.write(f"Step {i} min distance: {np.min(distances)} max distance: {np.max(distances)}\n")
-            
-            
-         
-            if largest_cluster is not None:
-
-                cluster_points = candidate_positions[largest_cluster]
-                cluster_center = np.mean(cluster_points, axis=0)
-                distances_cluster = np.linalg.norm(cluster_points - cluster_center, axis=1)
-
-                print("Cluster radius (max):", np.max(distances_cluster))
-                dbscanLogFile.write(f"Step {i} Cluster radius (max): {np.max(distances_cluster)}\n")
-                print("Cluster radius (mean):", np.mean(distances_cluster))
-                dbscanLogFile.write(f"Step {i} Cluster radius (mean): {np.mean(distances_cluster)}\n")
-                
-                density = len(cluster_points) / (4/3*np.pi*np.max(distances_cluster)**3)
-                print("Cluster density:", density)
-                dbscanLogFile.write(f"Step {i} Cluster density: {density}\n")
-            
-                # ----- Check that cluster is near enhancer -----
-                #cluster_center = np.mean(cluster_points, axis=0)
-                #cluster_distance = np.linalg.norm(cluster_center - enhancer_center)
-                #if cluster_distance > 5*sig_chromatin:
-                    #largest_cluster = None
-         
-         
-
-        #if closest_cluster_indices is not None:
-            #cluster_points = ser5p_positions[closest_cluster_indices]
-
-            # ---- Save particle positions ----
-            
-            #for idx in closest_cluster_indices:
-                #particle_id = ser5p_atoms[idx]
-                #x, y, z = ser5p_positions[idx]
-                
-                
-                for idx in largest_cluster:
-
-                    particle_id = candidate_ids[idx]
-                    x, y, z = candidate_positions[idx]   
-
-                    ser5pPosFile.write(f"{i+1},{particle_id},{x},{y},{z}\n")
-                
-                            
-
-                # ---- Compute sphericity ----
-                if len(cluster_points) > 4:
-
-                    hull = ConvexHull(cluster_points)
-
-                    V = hull.volume
-                    A = hull.area
-
-                    sphericity = (np.pi**(1/3) * (6*V)**(2/3)) / A
-                    
-                    print("Number of clusters:", len(unique_labels))
-                    dbscanLogFile.write(f"Step {i} Number of clusters: {len(unique_labels)}\n")
-                    dbscanLogFile.write(f"Step {i} summary: candidates={len(near_indices)} largest_cluster={largest_size}\n")
- 
-
-    sphericityFile.write(f"{i+1},{sphericity}\n")
-    
-    
-    
-    
-    # Save Ser5P X, Y, Z positions to the output file
-    #for pos in ser5p_positions:
-        #ser5pPosFile.write(f"{i},{pos[0]},{pos[1]},{pos[2]}\n")
-        
-    
-    # CALCULATING CONDENSATE SPHERICITY
-    
-    #Expected psi values: 
-    # psi ≈ 0.6 early cluster
-    #psi ≈ 0.8 mature condensate
-    #psi ≈ 0.7 dissolving cluster
-    
-    
- 
     ds = cdist(ser5p_positions, reg_positions, 'euclidean')
     s5p_nums = []
     for cr in cluster_r:
@@ -1282,21 +1175,7 @@ for i in range(NRuns+treatment_duration):
         diff_list.append(y-x)
     
     ser5p_around_cluster[i] = diff_list        
-    n_rnp.append(len(rnp_atoms))   #number of RNP atoms each timestep
-    
-    
-
-            #if len(cluster_points) > 4:
-
-                #hull = ConvexHull(cluster_points)
-
-                #V = hull.volume
-                #A = hull.area
-
-                #sphericity = (np.pi**(1/3)*(6*V)**(2/3))/A
-
-    #sphericityFile.write(f"{i},{sphericity}\n")
-       
+    n_rnp.append(len(rnp_atoms))
 
 if make_snapshots:
     ppmFiles = glob.glob(out_folder+'/run'+str(run_number)+'/image_files/*.ppm')
@@ -1311,9 +1190,6 @@ print("Genes have been active for "+str(round(100*total_active_steps/(NRuns-t_ac
  
 # if total_active_steps==0:
 #     os.rmdir(out_folder+'/run'+str(run_number)+'/image_files')
-
-
-
     
 for i in range(len(ser5p_around_cluster)):
     ser5pAroundClusterFile.write(str((i+1)*delt)+",")
@@ -1324,10 +1200,6 @@ for i in range(len(ser5p_around_cluster)):
             ser5pAroundClusterFile.write(str(ser5p_around_cluster[i][j])+"\n")
 
 ser5pAroundClusterFile.close()
-
-ser5pPosFile.close()
-sphericityFile.close()
-dbscanLogFile.close()
 
 # Make event log from active_runs
 # 0: induced but non-engaging
@@ -1398,42 +1270,6 @@ for var_i in range(2):
         for x in event_array:
             myFile.write(str(x)+"\n")
         myFile.close()
-        
-#Generate SE-Gene distance files, dist and ddist, for each simulation run individually
-
-event_types = ['induced', 'approaching', 'active', 'receding']
-
-for var_i in range(2):
-
-    if var_i == 0:
-        array_oi = dist_reg_gene.copy()
-        var_name = "dist"
-    elif var_i == 1:
-        array_oi = d_dist_reg_gene.copy()
-        var_name = "ddist"
-
-    for j in range(len(event_types)):
-
-        #event_array = np.array([array_oi[i] for i in range(len(array_oi)) if event_log[i]==j])
-
-        run_file = open(out_folder+"/run"+str(run_number)+"/"+var_name+"_"+event_types[j]+"_run"+str(run_number)+".txt","a")
-
-        for i in range(len(array_oi)):
-
-            if event_log[i] == j:
-
-                timestep = i+1
-                value = array_oi[i]
-
-                run_file.write(str(timestep) + "\t" + str(value) + "\n")
-
-        run_file.close()
-        
-# SAVE NUMBER OF RNPs TO AN OUTPUT FILE
-#myFile = open(out_folder + "/run"+str(run_number)+"/rnp_counts.txt", "w")
-#for tcount in n_rnp:
-#    myFile.write(f"{tcount}\n")
-#myFile.close()
               
 if make_plots:
         
@@ -1498,5 +1334,4 @@ if make_plots:
         ax[1].set_ylabel('No. of Ser5P around promoter')
         fig.savefig(out_folder+'/run'+str(run_number)+"/figures/gene_rp_time.pdf", bbox_inches="tight")
         
-print("Min Ser5P ID:", min(ser5p_atoms), "Max Ser5P ID:", max(ser5p_atoms),"Total number of Ser5P particles:", len(ser5p_atoms))           
 # %%
