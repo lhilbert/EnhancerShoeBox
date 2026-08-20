@@ -200,11 +200,6 @@ LJsoft_RSQ.table defines the following parameters for certain types of interacti
 - column 3: energy of the Lennard-Jones soft potential
 - column 4: force of the Lennard-Jones soft potential
 
-[DESCRIPTION OF THE COLUMNS IN LJsoft_RSQ.table FILE - MY GUESSWORK TO BE PROVED!]
-
-[DEFINITION OF THE PARAMETERS TO BE DECLARED IN setup_ljsoft_potentials.py SCRIPT NEEDED - MY GUESSWORK TO BE PROVED!]
-[LENGTH AND ENERGY UNITS NEEDED]
-
 ### Some actin simulations are unstable
 
 With the current setup, actin simulations (when actin can polymerize) are sometimes unstable. Usual errors are atoms escaping the box boundary and bonds becoming very unstable. I haven't figured out the exact source of these errors. As of September 2023, the parallelized code automatically handles these "failed" simulation runs, and restarts them.  
@@ -295,20 +290,12 @@ The generated data is stored in the output folder declared by the -o argument (e
  - parallel_counter (valid only for parallel runs)
  - run1 
  
- And the output files:
-[DESCRIBE FILE CONTENT]
+ And the output files (all appended across repeats in this condition folder, written by `run_single_shoebox.py`):
 - active_duration.txt --> Active durations for each run. Each line has three entries of the form `run_number,active_duration,total_length`. The units of `active_duration` and `total_length` are Python timesteps. For Control, `total_length` is 1850 and not 2000 because gene induction and activation start at `t_induction_on = t_activation_on = 150`
-- ddist_active.txt
-- ddist_approaching.txt
-- ddist_induced.txt
-- ddist_receding.txt
-- dist_active.txt
-- dist_approaching.txt
-- dist_induced.txt
-- dist_receding.txt
-- gene_stats.txt  --> columns: is gene in contact with cluster (0 or 1),"+str(d*sig_chromatin)+", Ser5P around gene, Ser2P around gene
-[COLUMN 2 d*sig_chromatin MEANING ?]
-[COLUMN 3 and 4: S5P around GENE OR PROMOTER?]
+- Each time step of each repeat is classified into one of four states based on its position relative to the nearest activation event: `induced` (baseline, before any activation-window influence), `approaching` (within a window before an activation event), `active` (the event_log==2 window itself), `receding` (within a window after an activation event). `dist_*.txt` and `ddist_*.txt` below are one flat file per state, pooling values from all time steps (across all repeats in the condition) that fall in that state.
+- dist_active.txt / dist_approaching.txt / dist_induced.txt / dist_receding.txt --> one Reg(enhancer)-TSS(gene) distance value per line (in nm; same quantity as `d_reg_gene` in geneTrack.txt), for every time step classified into that state.
+- ddist_active.txt / ddist_approaching.txt / ddist_induced.txt / ddist_receding.txt --> same as above, but each value is the *change* in that Reg-TSS distance from one time step to the next (`dist[t+1] - dist[t]`), for every time step (at time `t`) classified into that state.
+- gene_stats.txt  --> one line per time step (from `t_induction_on` onward), columns: (1) is gene in contact with cluster, i.e. 1 if the Reg-TSS distance at that time step is below `pol2release_radius`, else 0; (2) the Reg-TSS distance itself, in nm (`d_rg * sig_chromatin`, same quantity as `dist_*.txt` and geneTrack.txt's `d_reg_gene`); (3) Ser5P around the gene TSS (not the promoter); (4) a Ser2P *proxy*, not an actual Ser2P count — 1 if the gene is in the "active" state (`event_log==2`) at that time step, else 0.
 
  
  The folder "run1" stores the main simulation data, distributed into subfolders and output files. They include:
@@ -316,8 +303,7 @@ The generated data is stored in the output folder declared by the -o argument (e
  - image_files --> simulation snapshots; can be combined into video (see: next sections)
  - microscopy_files --> synthetic microscopy images
  - geneTrack.txt --> columns: time, promoter_position_x, promoter_position_y, promoter_position_z, d_reg_promoter, d_reg_gene, Ser5P_around_promoter, Ser5P_around_gene, gene_state (0: inactive, 1: induced, 2: active)
- - ser5pAroundCluster.txt --> position of Ser5P around cluster within certain cutoff distance for each time step
-[COULD BE ALSO DISTANCES WITH REFERENCE TO CLUSTER CENTER OF MASS ?]
+ - ser5pAroundCluster.txt --> for each time step (row), the number of Ser5P (Pol II) atoms found within each of a series of concentric distance shells around the regulatory (enhancer) region (columns, labelled by each shell's outer radius, from a `cluster_r` grid spanning 0.65 to 2.5 in box units). Distance here is atom-to-atom (nearest regulatory-region atom to each Ser5P atom, via `cdist`), *not* distance to the regulatory region's center of mass: for each shell, the script counts all Ser5P atoms within that radius of any regulatory-region atom (a running/cumulative count as the radius grows), then takes the difference between consecutive radii, so each column's value is the number of Ser5P atoms newly captured within that shell.
  
  The subfolder "figures" stores the following files:
 - gene_1_ddrg_events.pdf --> histogram of the distribution of the distances between enhancer (Reg) and transcription start site (TSS) for the genes at different states
@@ -327,11 +313,11 @@ The generated data is stored in the output folder declared by the -o argument (e
 - gene_rp.pdf --> nr of Ser5P around promoter vs. Reg-Promoter distance
 - gene_rp_time.pdf --> nr of Ser5P around promoter and Reg-promoter distance vs. time [min]
 - n_rnp.pdf --> number of RNPs vs. time
-- ser5p_cluster.pdf --> [probability/amount of Ser5P around cluster for each time step ?]
+- ser5p_cluster.pdf --> heatmap version of `ser5pAroundCluster.txt` (see above): rows are time steps, columns are the concentric distance shells around the regulatory (enhancer) region, color is the number of Ser5P atoms newly captured within each shell.
 - ser5p_log.pdf --> white: position of superenhancer; grey: position of the gene center of mass; black: activation threshold; green dots: transcription activity. Left Y-axis: time step, X-axis: position
 - ser5p.pdf --> white: position of superenhancer; grey: position of the gene center of mass; black: activation threshold; green dots: transcription activity. Left Y-axis: time step, X-axis: position, right Y-axis: local count of Ser5P
 
-[DIFFERENCES DDRG and DRG, DDIST and DIST]
+`drg`/`ddrg` (used in the `figures/gene_*.pdf` filenames above) and `dist`/`ddist` (used in the condition-level `dist_*.txt`/`ddist_*.txt` flat files) name the same two quantities, just in different contexts: `drg`/`dist` is the raw Reg(enhancer)-TSS(gene) distance in nm at a given time step; `ddrg`/`ddist` is the change in that distance from one time step to the next (`dist[t+1] - dist[t]`). The `drg`/`ddrg` figures are per-repeat histograms built directly in `run_single_shoebox.py`; the `dist`/`ddist` files are the same underlying values pooled across all repeats in a condition and split out per activation-event state (see the `dist_*.txt`/`ddist_*.txt` description above).
 
 ## 4. Parallel runs
 
@@ -377,15 +363,14 @@ Some output plots like the gene track (ser5P around promoter and cluster-promote
 
 ### Making a gene track figure
 
-While a gene track figure is already made by `run_single_shoebox.py` and saved in the `figures` folder, the scripts `plotTracks.py` and `plotInhibitorTrack.py` (both older versions currently; plotInhibitorTrack.py only valid for simulations with transcription inhibitors) can be easily adapted to prepare figures for the new data.
+While a gene track figure is already made by `run_single_shoebox.py` and saved in the `figures` folder, the scripts `plotTracks_modif.py` (in the repo root; the current version of the older `plotTracks.py`) and `plotInhibitorTrack.py` (only valid for simulations with transcription inhibitors) can be easily adapted to prepare figures for the new data.
 
-Run 'plotTracks.py' in the folder where the "geneTrack.txt" file is located, or declare the path to "geneTrack.txt" directly in the script. The generated output files are:
+Run `plotTracks_modif.py` in the folder where the "geneTrack.txt" file is located, or declare the path to "geneTrack.txt" directly in the script. The generated output files are:
 
-- gene_track.pdf (distange enhancer-promoter and number of Ser5P around promoter vs. time)
-- gene_track_inset.pdf
+- gene_track.pdf --> two stacked panels sharing a time axis: Reg-Promoter distance (top) and number of Ser5P around the promoter (bottom), both vs. time. A dash-dotted horizontal line marks the respective activation threshold (`dist_thr`/`S5P_thr`) in each panel, and the trace is highlighted in a heavier grey wherever the gene is in the "active" state.
+- gene_track_inset.pdf --> a small, axis-less zoom-in on the Ser5P-around-promoter trace, restricted to a narrow time window around the run's activation events; meant to be dropped into a larger figure as an inset. It is produced whenever `plotTracks_modif.py` is run — but its time window (like the vertical lines below) is hardcoded per example run.
 
-[DESCRIPTION OF gene_track_inset.pdf NEEDED]
-[RED VERTICAL LINES IN gene_track.pdf MEANING ?]
+The four vertical lines drawn on both `gene_track.pdf` and `gene_track_inset.pdf` (`t1`-`t4`, in orange) are **not** computed automatically from the data — they are timestamps hardcoded in `plotTracks_modif.py` for two specific example runs (`r==3` or `r==4`), chosen by eye to mark events of interest in those particular runs. To reuse the script on a different `geneTrack.txt`, `t1`-`t4` (and the `gene_track_inset.pdf` time window, which is derived from them) need to be edited by hand to match that run's events.
 
 ## 5. Contact maps and gene design plots
 
@@ -409,8 +394,10 @@ The script creates in the current directory the folder 'contact_maps', which con
 - heatmap_thr.pdf --> relation between activation rate and threshold for different gene designs
 - surface.pdf
 
-[byRegion_new.pdf DESCRIPTION OF X-AXIS NEEDED]
-[heatmap_pr_figure.pdf CONTAINS ONLY RAW DATA - IS IT NEEDED?]
+`byRegion_new.pdf` and `heatmap_pr_figure.pdf` are both produced by `contact_maps_flags.py`/`contact_maps_modif.py` (they aren't a leftover — the code that saves them is live):
+
+- byRegion_new.pdf --> 3 panels sharing an x-axis: promoter-length composition (as fractions), activation rate, and contact % — each broken out by the four transcription-control classes (NV-in, NV-ac, V-in, V-ac) below. The x-axis is that region/class (positions 0-3 for NV-in/NV-ac/V-in/V-ac), though the code that would label the ticks with those names is currently commented out, so the saved PDF shows unlabeled tick positions.
+- heatmap_pr_figure.pdf --> the same promoter-length × activation-rate repeat-count data as `heatmap_pr.pdf` (4 panels, one per region), just with the color scale normalized to each panel's max and all axis ticks/labels/spines/colorbar stripped out — a bare version meant for direct use as a manuscript figure panel, not a raw-data dump.
 
 Different classes of transcription control:
 
@@ -426,6 +413,31 @@ python3 contact_maps_flags.py -f /path/to/file/summary_contact_grouped.txt
 ```
 
 Options '-h' or '--help' displays "help" message.
+
+### Up-to-date pipeline: gene-cluster visit maps (`VisitorGeneMaps/`)
+
+The workflow above is kept for reference, but the current, up-to-date pipeline for generating gene maps lives in the [`VisitorGeneMaps/`](VisitorGeneMaps/) directory, documented in full in [`VisitorGeneMaps/README.md`](VisitorGeneMaps/README.md). It runs in three stages:
+
+**1. Simulation sweep.** [`run_singleCond_parallel.sh`](VisitorGeneMaps/run_singleCond_parallel.sh) drives [`run_single_GENES_STAGES.py`](VisitorGeneMaps/run_single_GENES_STAGES.py) over the full `Promoter (1-3) × Threshold (10-100) × Activation` grid (plus repeats), writing output under `box<BOX_LENGTH>/<CONDITION>_Promoter<P>_Threshold<T>_Act<A>/run<r>/`.
+
+**2. Aggregation into summary tables.** The `dist_genestages_*.py` family in `VisitorGeneMaps/` reads `geneTrack.txt` per repeat and aggregates into flat `summary_contact_*.txt` tables:
+
+| Script | Output | Grouping |
+| --- | --- | --- |
+| `dist_genestages_all.py` | `summary_contact_all_Thresholds10-100.txt` | one row per repeat |
+| `dist_genestages_all_5percentile.py` | `summary_contact_all_Thresholds10-100_5percentile.txt` | one row per repeat, plus 5-percentile distance columns |
+| `dist_genestages_grouped.py` | `summary_contact_grouped_Thresholds10-100_test.txt` | 10 repeats averaged per row |
+| `dist_genestages_grouped_5percentile_10xaveraging.py` | `summary_contact_grouped_Thresholds10-100_5percentile_10xaveraged.txt` | 10 repeats averaged per row, plus 5-percentile distance columns |
+| `dist_genestages_grouped_cpp.cpp` (compiled as `dist_genestages_grouped_cpp`) | `summary_contact_grouped_Thresholds10-100_cpp.txt` | one row per repeat; C++ re-implementation for speed |
+
+These scripts expect a *complete* sweep (every one of the 330 condition folders, each with its full set of repeats) — running them over a partial sweep silently produces an equally partial, misleading summary table rather than an error.
+
+**3. Final maps.** [`shoebox_summary_maps.py`](VisitorGeneMaps/shoebox_summary_maps.py) reads a grouped summary table together with the microscopy file `gene_cluster_visit_OPoutcome_20260719.csv` and produces two figures, both plotted on the Pol II Ser5P (x) / active-fraction Pol II Ser2P (y) coordinate system:
+
+- **Fig. 1 — interpolation maps** (`shoebox_colormaps.svg`/`.png`): 4 panels, each coloring the (Ser5P, Ser2P) plane by the locally expected value (50 nearest-neighbor weighted average) of a parameter or outcome (5-percentile enhancer–promoter distance, promoter length, activation threshold, activation rate). Microscopy data points are overlaid on the first panel with a reported Pearson r and p-value.
+- **Fig. 2 — raw scatter maps** (`shoebox_scatter_maps.svg`/`.png`): 5 panels (A–E), one dot per simulated repeat, showing the raw spread behind Fig. 1's smoothed maps.
+
+See `VisitorGeneMaps/README.md` for the full file/folder layout, script details, and known caveats (e.g. output filenames that don't match their generating script's current default).
 
 ## 6. Making video from snapshots
 
