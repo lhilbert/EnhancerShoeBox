@@ -313,15 +313,29 @@ def progress_bars(data, total, bar_length=20):
 
         print('Run '+str(int(data[i,0]))+': [%s%s] %d %%' % (arrow, spaces, percent), end='\n')
 
+# Optional flags (defaults reproduce the original behavior):
+#   -g <0/1>  save per-run figures (PDF plots); default 1
+#   -q <0/1>  quiet: no terminal progress display; default 0
+#   -s <int>  seed for Python's random module, which also draws the LAMMPS seeds; default: unseeded
+make_plots = 1
+quiet = 0
+seed = None
+usage = 'run_single_GENES_STAGES.py -b <box_size> -r <repeat> -t <total_runs> -o <out_folder> -m <make_images> -c <condition> -p <promoter_length> -a <activation_rate> -x <threshold> [-g <make_figures> -q <quiet> -s <seed>]'
 try:
-    opts, args = getopt.getopt(sys.argv[1:],"hb:r:t:o:m:c:p:a:x:",["box=","repeat=","total=","outfolder=","make_images=","condition=","promoter=","activation=","threshold="])
+    opts, args = getopt.getopt(sys.argv[1:],"hb:r:t:o:m:c:p:a:x:g:q:s:",["box=","repeat=","total=","outfolder=","make_images=","condition=","promoter=","activation=","threshold=","figures=","quiet=","seed="])
 except getopt.GetoptError:
-    print('run_single_ACTIN_SMALL_BOX.py -b <box_size> -r <repeat> -t <total_runs> -o <out_folder> -m <make_images> -c <condition> -p <promoter_length> -a <activation_rate> -x <threshold>')
+    print(usage)
     sys.exit(2)
 for opt, arg in opts:
     if opt == '-h':
-        print('run_single_ACTIN_SMALL_BOX.py -b <box_size> -r <repeat> -t <total_runs> -o <out_folder> -m <make_images> -c <condition> -p <promoter_length> -a <activation_rate> -x <threshold>')
+        print(usage)
         sys.exit()
+    elif opt in ("-g", "--figures"):
+        make_plots = int(arg)
+    elif opt in ("-q", "--quiet"):
+        quiet = int(arg)
+    elif opt in ("-s", "--seed"):
+        seed = int(arg)
     elif opt in ("-b", "--box"):
         box = int(arg)
     elif opt in ("-r", "--repeat"):
@@ -340,6 +354,9 @@ for opt, arg in opts:
         p_gene_activation = float(arg)/1000
     elif opt in ("-x", "--threshold"):
         ser5p_to_activate = int(arg)
+
+if seed is not None:
+    random.seed(seed)
 
 # if run_number<=100:
 #     make_snapshots = 1
@@ -405,7 +422,7 @@ elif box==24:
 
 length_gene=5
 NChromosomes=25
-make_plots=1
+# make_plots is set by the -g flag (default 1)
 make_microscopy=0
 print_verbose=0
 move_added_atoms=1
@@ -467,15 +484,17 @@ elif promoter_length==4:
 # Timescales of various processes
 NRuns=2000
 tRun=200
-dt=0.005 # 0.03s
-delt=0.03*tRun # 6s
+# Time calibration: one Python step (tRun LAMMPS steps) corresponds to 0.6 s,
+# i.e. one LAMMPS step of length dt corresponds to 3 ms.
+dt=0.005 # reduced LJ time; 3 ms
+delt=0.6 # s per Python step
 
 gene_switching_off=0
 
-n_soft=10 # 60s
-n_eq=10 # 60 more s
-t_ser5p_on = 15 # polymerization can't begin before Ser5P on
-t_induction_on=150 # 3 min = 180s
+n_soft=10 # 6 s
+n_eq=10 # 6 s more
+t_ser5p_on = 15 # Ser5P interactions switched on at Python step 15 (9 s)
+t_induction_on=150 # 90 s
 t_activation_on=t_induction_on 
 
 treatment_duration = 0
@@ -486,26 +505,26 @@ elif condition=="JQ-1":
 elif condition=="Flavopiridol":
     treatment_duration = int(30*60/0.6)
     
-t_transcription_on=100*NRuns # 5 min = 300s
-t_induction_off=100*NRuns # 5 min = 300s
-t_activation_off=100*NRuns # 10 min = 600s
-t_transcription_off=100*NRuns # 10 min = 600s
+t_transcription_on=100*NRuns # beyond the trajectory, i.e. disabled
+t_induction_off=100*NRuns # disabled
+t_activation_off=100*NRuns # disabled
+t_transcription_off=100*NRuns # disabled
 
 tImageDump=10*tRun
 
 if gene_switching_off:
-    t_transcription_on=100*NRuns # 5 min = 300s
-    t_induction_on=100*NRuns # 2 min = 120s
-    t_activation_on=100*NRuns # 5 min = 300s
-# each run is 6s
-# 30 min = 1800 s = 300 runs
-# 1 hour = 3600 s = 600 runs
+    t_transcription_on=100*NRuns # disabled
+    t_induction_on=100*NRuns # disabled
+    t_activation_on=100*NRuns # disabled
+# each Python step is 0.6 s
+# 30 min = 1800 s = 3000 Python steps
+# 1 hour = 3600 s = 6000 Python steps
 
 t_on_plus=1
 t_on_minus=40 # (k_on_plus/k_on_minus) 10
 t_off_plus=100*NRuns # (k_on_plus/k_off_plus) 8
 t_off_minus=5 # (k_on_plus/k_off_minus)
-t_rbprnp=1 # conversion every 48 seconds, a burst
+t_rbprnp=1 # every Python step (0.6 s)
 p_rbprnp=1/8
 # RNP only degradation ~ 20 min:
 t_rnprbp=10
@@ -514,12 +533,12 @@ p_rnprbp=1/20 # every 10 steps
 t_rnprbp=10 # 2
 p_rnprbp=1/30
 loc_rnprbp=1 # 1: everywhere randomly, 2: near the nuclear periphery
-t_gene_induction=1 # every 30s
-t_gene_activation=1 # every 60s
+t_gene_induction=1 # every Python step (0.6 s)
+t_gene_activation=1 # every Python step (0.6 s)
 # p_gene_activation=0.05 # 0.33 # with this probability, activate an induced visitor gene (keeping activation stochastic)
-t_active_duration=50 # duration for which a gene is active: 50 -> 5 min
-t_gene_inactivation=1 # 5; every 60s 
-fraction_induce=1.0 # if run every step (6s), this gives 1 per 3 min rate
+t_active_duration=50 # duration for which a gene is active: 50 Python steps = 30 s
+t_gene_inactivation=1 # every Python step (0.6 s)
+fraction_induce=1.0 # all inactive genes are induced at t_induction_on
 fraction_activate=1/20 # if run every step, results in 1 per 2 min rate, irrelevant for visitor genes
 fraction_inactivate=1/20 # 1/10; run every 15 steps, results in 1 per 15 min rate
 activation_delay=2
@@ -711,20 +730,21 @@ for i in range(NRuns+treatment_duration):
     myFile.write(str(run_number)+','+str(i+1))
     myFile.close()
 
-    data=[]
-    for file in os.listdir(out_folder+"/parallel_counter"):
-        if file.startswith("progress_run"):
-            myFile = open(out_folder+"/parallel_counter/"+file, 'r')
-            for line in myFile:
-                array = line.strip().split(',')
-                data.append([float(array[0]), float(array[1])])
-            myFile.close()
-    data = np.array(data)
-        
-    # progress_bar(i, NRuns-1, "Runs done "+str(initial_count)+"/"+str(total_runs))
-    subprocess.run(["clear"])
-    print("Condition: "+condition+", Promoter: "+str(promoter_length)+", Total runs: "+str(total_runs)+"\n")
-    progress_bars(data, NRuns)
+    if not quiet:
+        data=[]
+        for file in os.listdir(out_folder+"/parallel_counter"):
+            if file.startswith("progress_run"):
+                myFile = open(out_folder+"/parallel_counter/"+file, 'r')
+                for line in myFile:
+                    array = line.strip().split(',')
+                    data.append([float(array[0]), float(array[1])])
+                myFile.close()
+        data = np.array(data)
+
+        # progress_bar(i, NRuns-1, "Runs done "+str(initial_count)+"/"+str(total_runs))
+        subprocess.run(["clear"])
+        print("Condition: "+condition+", Promoter: "+str(promoter_length)+", Total runs: "+str(total_runs)+"\n")
+        progress_bars(data, NRuns)
     
     if print_verbose:
         print('-----------------------------------------------------------------------')
@@ -1089,6 +1109,10 @@ for i in range(NRuns+treatment_duration):
     ser5p_around_cluster[i] = diff_list        
     n_rnp.append(len(rnp_atoms))   #number of RNP atoms each timestep
 
+# Close geneTrack.txt now, so that it is completely written to disk before the
+# completion marker parallel_counter/run<r>.txt is created further below.
+myGeneFile.close()
+
 if make_snapshots:
     ppmFiles = glob.glob(out_folder+'/run'+str(run_number)+'/image_files/*.ppm')
     for i_file in range(len(ppmFiles)):
@@ -1214,42 +1238,42 @@ if make_plots:
     
     for j in range(len(gene_start_atoms)):
         fig, ax = plt.subplots(2,1, sharex=True)
-        ax[0].plot([delt*x/600 for x in list(range(len(d_rp)))], [d_rp[x][j]*sig_chromatin for x in range(len(d_rp))], color="k", linewidth=0.5)
+        ax[0].plot([delt*x/60 for x in list(range(len(d_rp)))], [d_rp[x][j]*sig_chromatin for x in range(len(d_rp))], color="k", linewidth=0.5)
         if len(active_runs[j])>0:
-            x_plot = [delt*active_runs[j][0]/600]
+            x_plot = [delt*active_runs[j][0]/60]
             y_plot = [d_rp[active_runs[j][0]][j]*sig_chromatin]
             for i in range(1, len(active_runs[j])):
                 if (active_runs[j][i]-active_runs[j][i-1])==1:
-                    x_plot.append(delt*active_runs[j][i]/600)
+                    x_plot.append(delt*active_runs[j][i]/60)
                     y_plot.append(d_rp[active_runs[j][i]][j]*sig_chromatin)
                 else:
                     ax[0].plot(x_plot, y_plot, '-', color=(0.5,0.5,0.5), linewidth=1)
-                    x_plot = [delt*active_runs[j][i]/600]
+                    x_plot = [delt*active_runs[j][i]/60]
                     y_plot = [d_rp[active_runs[j][i]][j]*sig_chromatin]
             ax[0].plot(x_plot, y_plot, '-', color=(0.5,0.5,0.5), linewidth=1)
             
-        # ax[0].plot([delt*x/600 for x in active_runs[j]], [d_rp[x][j]*sig_chromatin for x in active_runs[j]], '-', color=(0.5,0.5,0.5), linewidth=1)
+        # ax[0].plot([delt*x/60 for x in active_runs[j]], [d_rp[x][j]*sig_chromatin for x in active_runs[j]], '-', color=(0.5,0.5,0.5), linewidth=1)
         ax[0].axhline(200, linestyle='-.', color=(0.5,0.5,0.5), linewidth=0.5)
         if condition!="Control":
-            ax[0].axvline(delt*NRuns/600, linestyle='-', color="#d95f02", linewidth=2)
-        ax[1].plot([delt*x/600 for x in list(range(len(d_rp)))], [ser5p_around_promoter[x][j] for x in range(len(d_rp))], color="k", linewidth=0.5)
+            ax[0].axvline(delt*NRuns/60, linestyle='-', color="#d95f02", linewidth=2)
+        ax[1].plot([delt*x/60 for x in list(range(len(d_rp)))], [ser5p_around_promoter[x][j] for x in range(len(d_rp))], color="k", linewidth=0.5)
         
         if len(active_runs[j])>0:
-            x_plot = [delt*active_runs[j][0]/600]
+            x_plot = [delt*active_runs[j][0]/60]
             y_plot = [ser5p_around_promoter[active_runs[j][0]][j]]
             for i in range(1, len(active_runs[j])):
                 if (active_runs[j][i]-active_runs[j][i-1])==1:
-                    x_plot.append(delt*active_runs[j][i]/600)
+                    x_plot.append(delt*active_runs[j][i]/60)
                     y_plot.append(ser5p_around_promoter[active_runs[j][i]][j])
                 else:
                     ax[1].plot(x_plot, y_plot, '-', color=(0.5,0.5,0.5), linewidth=1)
-                    x_plot = [delt*active_runs[j][i]/600]
+                    x_plot = [delt*active_runs[j][i]/60]
                     y_plot = [ser5p_around_promoter[active_runs[j][i]][j]]
             ax[1].plot(x_plot, y_plot, '-', color=(0.5,0.5,0.5), linewidth=1)
-        # ax[1].plot([delt*x/600 for x in active_runs[j]], [ser5p_around_promoter[x][j] for x in active_runs[j]], '-', color=(0.5,0.5,0.5), linewidth=1)
+        # ax[1].plot([delt*x/60 for x in active_runs[j]], [ser5p_around_promoter[x][j] for x in active_runs[j]], '-', color=(0.5,0.5,0.5), linewidth=1)
         ax[1].axhline(ser5p_to_activate, linestyle='-.', color=(0.5,0.5,0.5), linewidth=0.5)
         if condition!="Control":
-            ax[1].axvline(delt*NRuns/600, linestyle='-', color="#d95f02", linewidth=2)
+            ax[1].axvline(delt*NRuns/60, linestyle='-', color="#d95f02", linewidth=2)
         ax[1].set_xlabel('Time (min)')
         ax[0].set_ylabel('Reg-Promoter distance (nm)')
         ax[1].set_ylabel('No. of Ser5P around promoter')

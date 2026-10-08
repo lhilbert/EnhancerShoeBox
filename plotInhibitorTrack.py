@@ -11,6 +11,13 @@ import sys, getopt
 import seaborn as sns
 
 cm = 1/2.54
+
+# Time calibration: one Python step (one row of geneTrack.txt) is 0.6 s,
+# and one LAMMPS step is 3 ms (200 LAMMPS steps per Python step).
+# Time is computed from the row number, so the plot is correct for geneTrack.txt
+# files written with either the old (6 s) or the new (0.6 s) time column.
+seconds_per_step = 0.6
+seconds_per_lammps_step = seconds_per_step / 200
 S5P_thr = 70
 dist_thr = 250
 NRuns = 2000
@@ -26,7 +33,8 @@ with open("geneTrack_FP_VAc_thr70_run22.txt") as f:
         if not line:
             break
         data = [float(x) for x in line.strip().split(",")]
-        time.append(data[0]/600)
+        row = len(d_rp)  # 0-based row index; row i is Python step i+1
+        time.append((row + 1) * seconds_per_step / 60)  # minutes
         d_rp.append(data[4])
         S5P_pr.append(data[6])
         state.append(int(data[8]))

@@ -5,7 +5,7 @@ task(){
         # echo "python run_single_ACTIN_SMALL_BOX_freezeActin.py -b ${8} -r $2 -t $5 -o $3 -m 0 -c $4 -p 3 -a ${9} -x $6" >> file.txt
 		python run_single_GENES_STAGES.py -b ${8} -r ${2} -t ${5} -o ${3} -m 0 -c ${4} -p ${10} -a ${9} -x ${6};
 		if test -f "${7}"; then
-            rm ${7}
+			# keep ${7}: it marks the repeat as finished, so a restarted sweep skips it
 			break
 		fi
 	done

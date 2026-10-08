@@ -11,6 +11,13 @@ import sys, getopt
 import seaborn as sns
 
 cm = 1/2.54
+
+# Time calibration: one Python step (one row of geneTrack.txt) is 0.6 s,
+# and one LAMMPS step is 3 ms (200 LAMMPS steps per Python step).
+# Time is computed from the row number, so the plot is correct for geneTrack.txt
+# files written with either the old (6 s) or the new (0.6 s) time column.
+seconds_per_step = 0.6
+seconds_per_lammps_step = seconds_per_step / 200
 S5P_thr = 40
 dist_thr = 200
 r = 4
@@ -25,7 +32,8 @@ with open("geneTrack.txt") as f:
         if not line:
             break
         data = [float(x) for x in line.strip().split(",")]
-        time.append(data[0]/60)
+        row = len(d_rp)  # 0-based row index; row i is Python step i+1
+        time.append((row + 1) * seconds_per_step / 60)  # minutes
         d_rp.append(data[4])
         S5P_pr.append(data[6])
         state.append(int(data[8]))
@@ -43,10 +51,10 @@ elif r==4:
     
 fig, ax = plt.subplots(2, 1, sharex=True, figsize=(8*cm, 5*cm))
 for i in range(2):
-    ax[i].axvline(t1*0.03/60, linestyle='-', color="#d95f02", linewidth=0.25)
-    ax[i].axvline(t2*0.03/60, linestyle='-', color="#d95f02", linewidth=0.25)
-    ax[i].axvline(t3*0.03/60, linestyle='-', color="#d95f02", linewidth=0.25)
-    ax[i].axvline(t4*0.03/60, linestyle='-', color="#d95f02", linewidth=0.25)
+    ax[i].axvline(t1*seconds_per_lammps_step/60, linestyle='-', color="#d95f02", linewidth=0.25)
+    ax[i].axvline(t2*seconds_per_lammps_step/60, linestyle='-', color="#d95f02", linewidth=0.25)
+    ax[i].axvline(t3*seconds_per_lammps_step/60, linestyle='-', color="#d95f02", linewidth=0.25)
+    ax[i].axvline(t4*seconds_per_lammps_step/60, linestyle='-', color="#d95f02", linewidth=0.25)
 ax[0].plot(time, d_rp, color="k", linewidth=0.25)
 # ax[0].plot([time[x] for x in range(len(d_rp)) if state[x]==2], [d_rp[x] for x in range(len(d_rp)) if state[x]==2], 'ko', markersize=3, mfc="none", mew=0.5)
 ax[1].plot(time, S5P_pr, color="k", linewidth=0.25)
@@ -86,11 +94,12 @@ ax[1].tick_params(length=2, width=0.5)
 fig.savefig("gene_track.pdf", bbox_inches="tight")
 
 fig, ax = plt.subplots(figsize=(2*cm, 1*cm))
-I = [x for x in range(len(time)) if time[x]>=t1/2000 and time[x]<=(t4/2000+2)]
-ax.axvline(t1*0.03/60, linestyle='-', color="#d95f02", linewidth=0.25)
-ax.axvline(t2*0.03/60, linestyle='-', color="#d95f02", linewidth=0.25)
-ax.axvline(t3*0.03/60, linestyle='-', color="#d95f02", linewidth=0.25)
-ax.axvline(t4*0.03/60, linestyle='-', color="#d95f02", linewidth=0.25)
+# Inset window: from marker t1 to 20 Python steps after marker t4
+I = [x for x in range(len(time)) if time[x]>=t1*seconds_per_lammps_step/60 and time[x]<=(t4*seconds_per_lammps_step/60 + 20*seconds_per_step/60)]
+ax.axvline(t1*seconds_per_lammps_step/60, linestyle='-', color="#d95f02", linewidth=0.25)
+ax.axvline(t2*seconds_per_lammps_step/60, linestyle='-', color="#d95f02", linewidth=0.25)
+ax.axvline(t3*seconds_per_lammps_step/60, linestyle='-', color="#d95f02", linewidth=0.25)
+ax.axvline(t4*seconds_per_lammps_step/60, linestyle='-', color="#d95f02", linewidth=0.25)
 ax.plot([time[x] for x in I], [S5P_pr[x] for x in I], color="k", linewidth=0.25)
 ax.axhline(S5P_thr, linestyle='-.', color=(0.5,0.5,0.5), linewidth=0.5)
 prev_state = 0
@@ -120,8 +129,8 @@ ax.set_yticks([])
 #fig.savefig("gene_track/set"+str(r)+"/gene_track_inset.pdf", bbox_inches="tight")
 fig.savefig("gene_track_inset.pdf", bbox_inches="tight")
 
-#print the times t1, t2, t3 and t4 corresponding to the bottom graph in gene_track.pdf file
-print(t1*0.03/60)
-print(t2*0.03/60)
-print(t3*0.03/60)
-print(t4*0.03/60)
+#print the times t1, t2, t3 and t4 (in minutes) corresponding to the bottom graph in gene_track.pdf file
+print(t1*seconds_per_lammps_step/60)
+print(t2*seconds_per_lammps_step/60)
+print(t3*seconds_per_lammps_step/60)
+print(t4*seconds_per_lammps_step/60)
