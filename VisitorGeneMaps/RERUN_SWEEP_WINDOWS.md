@@ -81,7 +81,6 @@ Do not use a folder under `/mnt/c`, because file access to Windows drives is muc
 cd ~
 git clone https://github.com/lhilbert/EnhancerShoeBox
 cd EnhancerShoeBox
-git checkout rerun-sweep    # skip this line once the branch is merged into main
 cd VisitorGeneMaps
 ```
 
