@@ -64,7 +64,9 @@ data.columns = ["Promoter", "Threshold", "Activation", "Runs", "S5PInt", "S2PInt
 # Convert columns to numeric type to avoid non-numeric errors
 data["Threshold"] = pd.to_numeric(data["Threshold"], errors="coerce")
 data["Promoter"] = pd.to_numeric(data["Promoter"], errors="coerce")
-data["Activation"] = pd.to_numeric(data["Activation"], errors="coerce")*0.1  # Convert to 1/min, assuming original units were 1/10 min
+# Convert to 1/min: the simulation uses a per-step activation probability of a/1000
+# with 0.6 s per Python step, so k_act = (a/1000)/(0.6 s) = 0.1*a 1/min
+data["Activation"] = pd.to_numeric(data["Activation"], errors="coerce")*0.1
 data["5percentRP"] = pd.to_numeric(data["5percentRP"], errors="coerce")
 
 # Remove rows with a Threshold below a chosen cutoff
@@ -184,7 +186,10 @@ def null_nmi(X_codes, y_codes, n_perm=50):
 
 for target_col in ["Promoter", "Threshold", "Activation"]:
     target_vals = data[target_col].values
-    target_codes = np.digitize(target_vals, np.histogram_bin_edges(target_vals, bins=n_bins))
+    # Design parameters take a small set of discrete sampled values. Code each sampled
+    # value separately instead of using equal-width bins, which merge the low k_act
+    # values (0.1/0.5/1.0, 1.5/2.0, 2.5/3.0 1/min) and the thresholds 70/75.
+    target_codes = np.unique(target_vals, return_inverse=True)[1]
     mi_s5p = normalized_mutual_info_score(S5P_codes, target_codes)
     mi_s2p = normalized_mutual_info_score(S2P_codes, target_codes)
     mi_s_joint = normalized_mutual_info_score(joint_codes, target_codes)
