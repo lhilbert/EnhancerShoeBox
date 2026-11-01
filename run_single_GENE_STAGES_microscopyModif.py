@@ -826,7 +826,7 @@ for i in range(NRuns+treatment_duration):
         Group.L.unfix('s2')
         if print_verbose:
             print("Soft done.")
-        Group.L.pair_style('table lookup 30000')
+        Group.L.pair_style('table linear 2000')  # linear interpolation, 2000 points: force error <= lookup 30000, ~5x smaller tables (CPU cache)
         # LJ potentials - default interaction between particles 
         Group.L.pair_coeff('*','*', 'LJsoft_RSQ.table CHROMATIN_CHROMATIN', 1.2) # 1.12 default for chromatin hardcore-repulsion
         # Chromatin and inactive genes
@@ -928,12 +928,12 @@ for i in range(NRuns+treatment_duration):
     gene_position.append(list(gene_xpositions))
     
     ser5p_positions=atomPositions[[x-1 for x in ser5p_atoms],:]
-    PromoterPositions = atomPositions[[x-promoter_length+1 for x in gene_start_atoms],:]
-    # x-promoter_length+2: promoter starting atom
-    # x-promoter_length+1: promoter -1 atom
+    PromoterPositions = atomPositions[[x-2 for x in gene_start_atoms],:]
+    # Promoter position: the affinity-region bead adjacent to the first gene-body bead
+    # (atom ID x-1, i.e. row x-2 of atomPositions, whose rows hold atom IDs 1..N).
     # d_rp.append([np.sqrt(np.sum((RRPosition - PromoterPositions[k,:]) ** 2)) for k in range(len(PromoterPositions))])
     
-    d_rp.append([np.sqrt(np.sum((RRPosition - np.mean(atomPositions[[y-1 for y in [gene_start_atoms[0]-1-x for x in range(promoter_length)]],:], axis=0)) ** 2))])
+    d_rp.append([np.sqrt(np.sum((RRPosition - PromoterPositions[0,:]) ** 2))])  # same promoter position as the Ser5P count
     
     ds = cdist(PromoterPositions, ser5p_positions, 'euclidean')
     IPs = ds<pol2release_radius
@@ -974,9 +974,9 @@ for i in range(NRuns+treatment_duration):
     
     atomPositions = np.reshape(np.ctypeslib.as_array(Group.lmp.gather_atoms('x',1,3)),((Group.L.system.natoms,3)))
     ser5p_positions=atomPositions[[x-1 for x in ser5p_atoms],:]
-    induced_gene_positions = atomPositions[[x-promoter_length+1 for x in induced_gene_lociStart],:] 
-    # x-promoter_length+2: promoter starting atom
-    # x-promoter_length+1: promoter -1 atom
+    induced_gene_positions = atomPositions[[x-2 for x in induced_gene_lociStart],:] 
+    # Promoter position: the affinity-region bead adjacent to the first gene-body bead
+    # (atom ID x-1, i.e. row x-2 of atomPositions, whose rows hold atom IDs 1..N).
     
     if i%t_gene_activation==0 and i>=t_activation_on and i<t_activation_off:
         if print_verbose:

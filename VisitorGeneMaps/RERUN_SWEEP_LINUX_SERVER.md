@@ -14,7 +14,7 @@ With 30 repeats each, the first round comprises 9,900 simulation runs.
 |---|---|---|
 | Simulation runs | 9,900 | 33,000 |
 | Compute | about 1,200 core-hours | about 4,100 core-hours |
-| Wall time with 56 parallel runs on a 32-core / 64-thread CPU | about 1–1.5 days | about 4–4.5 days |
+| Wall time with 32 parallel runs on a 32-core / 64-thread CPU | about 1.5–2 days | about 5–6 days |
 | Disk space | about 6 GB | about 20 GB |
 | Memory | about 15–30 GB in total | same |
 
@@ -37,7 +37,7 @@ nproc; free -g; df -h ~; python3 --version; which git tmux
 Check the following:
 
 - `nproc` shows the number of logical CPUs.
-- `free -g` shows enough free memory, about 30 GB for 56 parallel runs.
+- `free -g` shows enough free memory, about 20 GB for 32 parallel runs.
 - `df -h ~` shows enough free disk space in the home folder, about 6 GB for 30 repeats and 20 GB for 100 repeats.
 - `which tmux` prints a path. If it prints nothing, use the alternative in step 6.
 
@@ -83,13 +83,19 @@ tmux new -s sweep
 source ~/esb-venv/bin/activate
 cd ~/EnhancerShoeBox/VisitorGeneMaps
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
-nice -n 19 python run_sweep.py --workers 56 --repeats 1-30
+nice -n 19 python run_sweep.py --workers 32 --repeats 1-30
 ```
 
 The `export` line keeps every simulation on a single thread.
 `nice -n 19` runs the sweep at the lowest priority.
 All simulations started by the runner inherit this priority.
-With 56 parallel runs, a few of the 64 threads stay free for other users.
+Use one run per physical core (32), not one per hardware thread (64).
+Earlier sweeps with 56 parallel runs were about 25 times slower per run than the test run.
+The cause was contention for the shared CPU caches, because every run reads its pair-potential tables at random positions.
+The simulation now uses smaller tables (`pair_style table linear 2000` instead of `table lookup 30000`), with equal or better force accuracy.
+Together with one run per physical core, the tables of all runs fit into the caches.
+Check after about an hour that `duration_s` in `sweep_log.csv` stays close to the value from the test run in step 4.
+If it is more than about twice as long, restart with `--workers 16`.
 
 To leave the sweep running, press `Ctrl-b` and then `d`.
 After that, the `ssh` connection can be closed.
@@ -100,7 +106,7 @@ After that, the `ssh` connection can be closed.
 source ~/esb-venv/bin/activate
 cd ~/EnhancerShoeBox/VisitorGeneMaps
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
-nohup nice -n 19 python run_sweep.py --workers 56 --repeats 1-30 > sweep.out 2>&1 &
+nohup nice -n 19 python run_sweep.py --workers 32 --repeats 1-30 > sweep.out 2>&1 &
 echo $! > sweep.pid
 ```
 
@@ -176,7 +182,7 @@ The script reports whether all combinations have the same number of finished run
 Start the sweep again with the full repeat range:
 
 ```bash
-nice -n 19 python run_sweep.py --workers 56 --repeats 1-100
+nice -n 19 python run_sweep.py --workers 32 --repeats 1-100
 ```
 
 Use the same `tmux` and `export` lines as in step 5.
