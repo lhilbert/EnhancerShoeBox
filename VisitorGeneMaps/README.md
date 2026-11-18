@@ -220,6 +220,12 @@ ffmpeg -framerate 30 -pattern_type glob -i 'example_movie/run36/image_files/BEFO
 ffmpeg -framerate 60 -pattern_type glob -i 'example_movie/run36/image_files/BEFORE_*.png' -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p example_movie_60fps.mp4
 ```
 
+With `-i`, all frames come from the regular image dump, so one colour map holds
+over the whole movie: inert chromatin and the inactive gene body light grey,
+super-enhancer and affinity region blue, induced gene body dark red, active gene
+body very dark grey, Ser5P particles pink. Without `-i`, a second dump with its
+own colour map writes additional frames while a gene is active.
+
 This gives 12,122 frames (1700 × 1000 pixels) for the 20 min of simulated
 time. At 30 frames per second the movie runs 6.7 min (3× real time), at 60
 frames per second 3.4 min (6× real time). The raw `.ppm` frames need about

@@ -521,6 +521,17 @@ t_transcription_off=100*NRuns # disabled
 tImageDump = image_interval if image_interval else 10*tRun
 tImageDumpAct = image_interval if image_interval else tRun*5
 
+# Movie mode. The regular dump imageDump and the activation dump imageDumpAct
+# write to the same BEFORE_*.ppm files but use different colour maps. Outside
+# movie mode the two run at different intervals, so this only adds frames. With
+# -i both run at the same interval, both write every frame of the active phase,
+# and the colour map of the movie would change whenever a gene is active. In
+# movie mode only imageDump is therefore created, which keeps one colour map
+# over the whole movie. The gene state stays visible in that map: inactive gene
+# body light grey (type 2), induced dark red (type 6), active very dark grey
+# (type 7).
+movie_mode = image_interval is not None
+
 if gene_switching_off:
     t_transcription_on=100*NRuns # disabled
     t_induction_on=100*NRuns # disabled
@@ -941,7 +952,7 @@ for i in range(NRuns+treatment_duration):
             delay_activation.append(0)
             induced_gene_lociStart_copy.remove(y)
             active_gene_lociStart.append(y)
-            if make_snapshots:
+            if make_snapshots and not movie_mode:
                 image_dump_string = 'imageDumpAct pad 7 backcolor white adiam 1*2 0.5 adiam 3*5 0.4 adiam 6*7 0.5 adiam 8 0.5 adiam 9*11 0.5 bdiam 1 0.05 bdiam 2 0.2 color verydarkgrey 0.2 0.2 0.2 acolor 1 lightgrey acolor 2 verydarkgrey acolor 3 chartreuse acolor 4 yellow acolor 5 aqua acolor 6 maroon acolor 7 darkgreen acolor 8 indianred acolor 9 blue acolor 10 lightblue'
                 Group.L.dump('imageDumpAct ImageGroup image',tImageDumpAct, out_folder+'/run'+str(run_number)+'/image_files/BEFORE_*.ppm type type zoom',3,'size',1700,1000,'view',0,-90,'shiny 0.5 box no 1')
                 Group.L.dump_modify(image_dump_string)
@@ -985,7 +996,7 @@ for i in range(NRuns+treatment_duration):
                         Group.L.set('atom', goi-x, 'type', 10)
                     active_gene_lociStart.remove(goi)
                     inactive_gene_lociStart.append(goi) 
-                    if make_snapshots:
+                    if make_snapshots and not movie_mode:
                         Group.L.undump('imageDumpAct')
             
         """ print('Inactivating '+str(round(fraction_inactivate*100))+' percent of '+str(len(active_gene_lociStart))+' active genes.')
