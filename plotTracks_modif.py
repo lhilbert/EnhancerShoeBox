@@ -20,7 +20,7 @@ seconds_per_step = 0.6
 seconds_per_lammps_step = seconds_per_step / 200
 S5P_thr = 40
 dist_thr = 200
-r = 4
+r = 36  # 36: example trajectory of Fig. 3D/E (see branch below)
 time = []
 d_rp = []
 S5P_pr = []
@@ -48,6 +48,16 @@ elif r==4:
     t2 = 93000
     t3 = 110000
     t4 = 118000
+elif r==36:
+    # Fig. 3D/E: affinity-region length 3, threshold 90, k_act = 2/min,
+    # Control_Promoter3_Threshold90_Act20, run 36 of the sweep (seed 3090020036),
+    # re-simulated with snapshots (-m 1). Marker times are LAMMPS steps,
+    # matching the snapshot file names BEFORE_<step>.png (200 LAMMPS steps per Python step).
+    t1 = 186000  # Python step 930: approach, small condensate at the affinity region
+    t2 = 190000  # Python step 950: the affinity region reaches toward the cluster
+    t3 = 192000  # Python step 960: close approach, merged condensate
+    t4 = 211000  # Python step 1055: gene active and released, 3 s after activation at step 1050
+    S5P_thr = 90  # activation threshold of this condition
     
 fig, ax = plt.subplots(2, 1, sharex=True, figsize=(8*cm, 5*cm))
 for i in range(2):

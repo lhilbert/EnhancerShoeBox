@@ -183,3 +183,46 @@ and then `shoebox_summary_maps.py`, writing everything to
 `<drive>/rerun_analysis_<N>runs/` unless `--out-dir` is given. Without
 `--box-dir`, it searches `--drive` for the folder holding the condition
 folders. `--skip-aggregation` redraws the maps from an existing table.
+
+## Example trajectory, snapshots and movie (Fig. 3D/E, SI movie)
+
+The example comes from the sweep condition `Control_Promoter3_Threshold90_Act20`
+(affinity-region length 3, threshold 90, k_act = 2 min⁻¹), run 36
+(seed 3090020036). Among the promoter-length-3 conditions with low to
+intermediate k_act, this condition lies closest to the experimental
+hyperactive-visitor genes in the gene map. Run 36 was selected from its sweep
+runs because it shows an approach from afar, a first visit, and then
+repeated engage–activate–release cycles.
+
+Because each run has a fixed seed, re-running it on the same machine and
+LAMMPS build reproduces the trajectory exactly. Image output (`-m 1`) does not
+change the trajectory. From `VisitorGeneMaps/`, on the machine that ran the sweep:
+
+```bash
+python run_single_GENES_STAGES.py -b 11 -r 36 -t 1 -o example_trace/ -m 1 -c Control -p 3 -a 20 -x 90 -g 0 -q 1 -s 3090020036
+cmp example_trace/run36/geneTrack.txt box11/Control_Promoter3_Threshold90_Act20/run36/geneTrack.txt && echo IDENTICAL
+```
+
+Snapshots are written every 2000 LAMMPS steps (10 Python steps, 6 s), and every
+1000 steps during activation, as `run36/image_files/BEFORE_<LAMMPS step>.png`
+(200 LAMMPS steps per Python step). The four snapshots of Fig. 3D are
+`BEFORE_0186000.png`, `BEFORE_0190000.png`, `BEFORE_0192000.png` and
+`BEFORE_0211000.png`. The time courses of Fig. 3E, with these four times
+marked, are drawn by [`../plotTracks_modif.py`](../plotTracks_modif.py)
+(`r = 36`), run inside the folder that holds `geneTrack.txt`.
+
+For the movie, the same run is repeated with a frame every 33 LAMMPS steps
+(0.1 s; option `-i`, which also applies during activation):
+
+```bash
+python run_single_GENES_STAGES.py -b 11 -r 36 -t 1 -o example_movie/ -m 1 -c Control -p 3 -a 20 -x 90 -g 0 -q 1 -s 3090020036 -i 33
+ffmpeg -framerate 30 -pattern_type glob -i 'example_movie/run36/image_files/BEFORE_*.png' -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p example_movie_30fps.mp4
+ffmpeg -framerate 60 -pattern_type glob -i 'example_movie/run36/image_files/BEFORE_*.png' -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p example_movie_60fps.mp4
+```
+
+This gives 12,122 frames (1700 × 1000 pixels) for the 20 min of simulated
+time. At 30 frames per second the movie runs 6.7 min (3× real time), at 60
+frames per second 3.4 min (6× real time). The raw `.ppm` frames need about
+65 GB of disk space before the simulation script converts them to `.png` at
+the end of the run.
+

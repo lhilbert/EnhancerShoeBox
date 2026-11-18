@@ -316,13 +316,16 @@ def progress_bars(data, total, bar_length=20):
 # Optional flags (defaults reproduce the original behavior):
 #   -g <0/1>  save per-run figures (PDF plots); default 1
 #   -q <0/1>  quiet: no terminal progress display; default 0
+#   -i <int>  LAMMPS steps between snapshot frames when -m 1 (default: 10*tRun, i.e. every
+#             10 Python steps, and 5*tRun during activation); e.g. -i 33 for movie frames
 #   -s <int>  seed for Python's random module, which also draws the LAMMPS seeds; default: unseeded
 make_plots = 1
 quiet = 0
 seed = None
-usage = 'run_single_GENES_STAGES.py -b <box_size> -r <repeat> -t <total_runs> -o <out_folder> -m <make_images> -c <condition> -p <promoter_length> -a <activation_rate> -x <threshold> [-g <make_figures> -q <quiet> -s <seed>]'
+image_interval = None
+usage = 'run_single_GENES_STAGES.py -b <box_size> -r <repeat> -t <total_runs> -o <out_folder> -m <make_images> -c <condition> -p <promoter_length> -a <activation_rate> -x <threshold> [-g <make_figures> -q <quiet> -s <seed> -i <image_interval>]'
 try:
-    opts, args = getopt.getopt(sys.argv[1:],"hb:r:t:o:m:c:p:a:x:g:q:s:",["box=","repeat=","total=","outfolder=","make_images=","condition=","promoter=","activation=","threshold=","figures=","quiet=","seed="])
+    opts, args = getopt.getopt(sys.argv[1:],"hb:r:t:o:m:c:p:a:x:g:q:s:i:",["box=","repeat=","total=","outfolder=","make_images=","condition=","promoter=","activation=","threshold=","figures=","quiet=","seed=","images_every="])
 except getopt.GetoptError:
     print(usage)
     sys.exit(2)
@@ -336,6 +339,8 @@ for opt, arg in opts:
         quiet = int(arg)
     elif opt in ("-s", "--seed"):
         seed = int(arg)
+    elif opt in ("-i", "--images_every"):
+        image_interval = int(arg)
     elif opt in ("-b", "--box"):
         box = int(arg)
     elif opt in ("-r", "--repeat"):
@@ -510,7 +515,11 @@ t_induction_off=100*NRuns # disabled
 t_activation_off=100*NRuns # disabled
 t_transcription_off=100*NRuns # disabled
 
-tImageDump=10*tRun
+# Snapshot frames (only with -m 1). With -i, frames are written every image_interval
+# LAMMPS steps, also during activation, so that a movie has a constant frame rate.
+# Image output does not change the trajectory.
+tImageDump = image_interval if image_interval else 10*tRun
+tImageDumpAct = image_interval if image_interval else tRun*5
 
 if gene_switching_off:
     t_transcription_on=100*NRuns # disabled
@@ -934,7 +943,7 @@ for i in range(NRuns+treatment_duration):
             active_gene_lociStart.append(y)
             if make_snapshots:
                 image_dump_string = 'imageDumpAct pad 7 backcolor white adiam 1*2 0.5 adiam 3*5 0.4 adiam 6*7 0.5 adiam 8 0.5 adiam 9*11 0.5 bdiam 1 0.05 bdiam 2 0.2 color verydarkgrey 0.2 0.2 0.2 acolor 1 lightgrey acolor 2 verydarkgrey acolor 3 chartreuse acolor 4 yellow acolor 5 aqua acolor 6 maroon acolor 7 darkgreen acolor 8 indianred acolor 9 blue acolor 10 lightblue'
-                Group.L.dump('imageDumpAct ImageGroup image',tRun*5, out_folder+'/run'+str(run_number)+'/image_files/BEFORE_*.ppm type type zoom',3,'size',1700,1000,'view',0,-90,'shiny 0.5 box no 1')
+                Group.L.dump('imageDumpAct ImageGroup image',tImageDumpAct, out_folder+'/run'+str(run_number)+'/image_files/BEFORE_*.ppm type type zoom',3,'size',1700,1000,'view',0,-90,'shiny 0.5 box no 1')
                 Group.L.dump_modify(image_dump_string)
             
         induced_gene_lociStart = induced_gene_lociStart_copy.copy()
