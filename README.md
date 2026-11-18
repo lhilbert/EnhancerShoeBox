@@ -418,7 +418,7 @@ Options '-h' or '--help' displays "help" message.
 
 The workflow above is kept for reference, but the current, up-to-date pipeline for generating gene maps lives in the [`VisitorGeneMaps/`](VisitorGeneMaps/) directory, documented in full in [`VisitorGeneMaps/README.md`](VisitorGeneMaps/README.md). It runs in three stages:
 
-**1. Simulation sweep.** [`run_singleCond_parallel.sh`](VisitorGeneMaps/run_singleCond_parallel.sh) drives [`run_single_GENES_STAGES.py`](VisitorGeneMaps/run_single_GENES_STAGES.py) over the full `Promoter (1-3) × Threshold (10-100) × Activation` grid (plus repeats), writing output under `box<BOX_LENGTH>/<CONDITION>_Promoter<P>_Threshold<T>_Act<A>/run<r>/`.
+**1. Simulation sweep.** [`run_sweep.py`](VisitorGeneMaps/run_sweep.py) drives [`run_single_GENES_STAGES.py`](VisitorGeneMaps/run_single_GENES_STAGES.py) over the full `Promoter (1-3) × Threshold (10-100) × Activation` grid with a fixed seed per repeat, writing output under `box<BOX_LENGTH>/<CONDITION>_Promoter<P>_Threshold<T>_Act<A>/run<r>/` (see [`RERUN_SWEEP_LINUX_SERVER.md`](VisitorGeneMaps/RERUN_SWEEP_LINUX_SERVER.md)). The older driver [`run_singleCond_parallel.sh`](VisitorGeneMaps/run_singleCond_parallel.sh) writes the same layout.
 
 **2. Aggregation into summary tables.** The `dist_genestages_*.py` family in `VisitorGeneMaps/` reads `geneTrack.txt` per repeat and aggregates into flat `summary_contact_*.txt` tables:
 
@@ -430,11 +430,11 @@ The workflow above is kept for reference, but the current, up-to-date pipeline f
 | `dist_genestages_grouped_5percentile_10xaveraging.py` | `summary_contact_grouped_Thresholds10-100_5percentile_10xaveraged.txt` | 10 repeats averaged per row, plus 5-percentile distance columns |
 | `dist_genestages_grouped_cpp.cpp` (compiled as `dist_genestages_grouped_cpp`) | `summary_contact_grouped_Thresholds10-100_cpp.txt` | one row per repeat; C++ re-implementation for speed |
 
-These scripts expect a *complete* sweep (every one of the 330 condition folders, each with its full set of repeats) — running them over a partial sweep silently produces an equally partial, misleading summary table rather than an error.
+The manuscript uses `dist_genestages_grouped_5percentile_10xaveraging.py --n-runs 60`, which takes the first 60 finished runs of each condition and replaces interrupted runs by later ones. It reports per condition how many runs it used. The other scripts expect a *complete* sweep (every one of the 330 condition folders, each with its full set of repeats) — running them over a partial sweep silently produces an equally partial, misleading summary table rather than an error.
 
 **3. Final maps.** [`shoebox_summary_maps.py`](VisitorGeneMaps/shoebox_summary_maps.py) reads a grouped summary table together with the microscopy file `gene_cluster_visit_OPoutcome_20260719.csv` and produces two figures, both plotted on the Pol II Ser5P (x) / active-fraction Pol II Ser2P (y) coordinate system:
 
-- **Fig. 1 — interpolation maps** (`shoebox_colormaps.svg`/`.png`): 4 panels, each coloring the (Ser5P, Ser2P) plane by the locally expected value (50 nearest-neighbor weighted average) of a parameter or outcome (5-percentile enhancer–promoter distance, promoter length, activation threshold, activation rate). Microscopy data points are overlaid on the first panel with a reported Pearson r and p-value.
+- **Fig. 1 — interpolation maps** (`shoebox_colormaps.svg`/`.png`): 4 panels, each coloring the (Ser5P, Ser2P) plane by the locally expected value (50 nearest-neighbor weighted average) of a parameter or outcome (5-percentile enhancer–promoter distance, promoter length, activation threshold, activation rate). Microscopy data points are overlaid on the first panel with a reported Pearson r and p-value. The panel labels give the mutual information between the joint Ser5P/Ser2P readout and each design parameter (bin-free nearest-neighbour estimate, k = 3, stratified permutation test), as the share of the parameter's entropy; all values are written to `mutual_information_knn_k3.csv`.
 - **Fig. 2 — raw scatter maps** (`shoebox_scatter_maps.svg`/`.png`): 5 panels (A–E), one dot per simulated repeat, showing the raw spread behind Fig. 1's smoothed maps.
 
 See `VisitorGeneMaps/README.md` for the full file/folder layout, script details, and known caveats (e.g. output filenames that don't match their generating script's current default).

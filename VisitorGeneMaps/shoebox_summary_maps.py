@@ -4,19 +4,59 @@ from matplotlib.ticker import MultipleLocator
 import numpy as np
 from matplotlib.colors import ListedColormap, Normalize, LogNorm
 from scipy.interpolate import interp1d
-from sklearn.neighbors import NearestNeighbors
+from sklearn.neighbors import NearestNeighbors, KDTree
 from sklearn.feature_selection import mutual_info_regression
-from sklearn.metrics import normalized_mutual_info_score
+from sklearn.metrics import adjusted_mutual_info_score
 from scipy.optimize import least_squares
 from scipy.spatial import ConvexHull
 from scipy import stats
+from scipy.special import digamma
+import argparse
 import os
 from pathlib import Path
 from matplotlib.patches import Rectangle
 
-# Use the current working directory as the default base directory,
-# but fall back to the script directory if needed.
-base_dir = Path.cwd().resolve()
+# --------------------------
+# Input and output locations
+# --------------------------
+# By default the script reads and writes in the current working directory,
+# which reproduces the previous behaviour. --out-dir moves both the summary
+# table it reads and the figures it writes to another folder, for example the
+# analysis folder of a sweep on an external drive. --summary and --microscopy
+# override the two input files individually. The microscopy table is looked up
+# next to the script when it is not found in the output folder, because it is
+# part of the repository and not of the simulation output.
+
+SUMMARY_NAME = "summary_contact_grouped_Thresholds10-100_5percentile_10xaveraged.txt"
+MICROSCOPY_NAME = "gene_cluster_visit_OPoutcome_20260719.csv"
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--out-dir", default=None,
+                    help="folder for the figures and the default input location (default: current folder)")
+parser.add_argument("--summary", default=None,
+                    help=f"summary table from the aggregation step (default: <out-dir>/{SUMMARY_NAME})")
+parser.add_argument("--microscopy", default=None,
+                    help=f"microscopy table (default: {MICROSCOPY_NAME} in <out-dir>, else next to this script)")
+parser.add_argument("--n-perm", type=int, default=1000,
+                    help="permutations for the mutual-information P values (default: 1000)")
+args, _unknown = parser.parse_known_args()
+
+script_dir = Path(__file__).resolve().parent
+base_dir = Path(args.out_dir).resolve() if args.out_dir else Path.cwd().resolve()
+base_dir.mkdir(parents=True, exist_ok=True)
+
+summary_path = Path(args.summary).resolve() if args.summary else base_dir / SUMMARY_NAME
+
+if args.microscopy:
+    microscopy_path = Path(args.microscopy).resolve()
+elif (base_dir / MICROSCOPY_NAME).is_file():
+    microscopy_path = base_dir / MICROSCOPY_NAME
+else:
+    microscopy_path = script_dir / MICROSCOPY_NAME
+
+print(f"Summary table:   {summary_path}")
+print(f"Microscopy data: {microscopy_path}")
+print(f"Figures go to:   {base_dir}")
 
 # --------------------------
 # Define Parula colormap manually
@@ -56,7 +96,8 @@ manual_cmap_limits = {
 # --------------------------
 
 # Load the data from the updated input file
-data = pd.read_csv(os.path.join(base_dir, 'summary_contact_grouped_Thresholds10-100_5percentile_10xaveraged.txt'))
+data = pd.read_csv(summary_path)
+print(f"Rows in summary table: {len(data)}")
 data.columns = ["Promoter", "Threshold", "Activation", "Runs", "S5PInt", "S2PInt", "Contact", "DistActivation", "5percentRG", "5percentRP"]
 
 
@@ -110,12 +151,15 @@ S5P_vals = 0.1 * data["S5PInt"].values + 20 * S2P_vals  # <-- Adjusted to includ
 # --------------------------
 
 # --- Create background grid ---
-support_S5P = np.linspace(0,20,200)
-support_S2P = np.linspace(0,0.20,200)
-x_plot_min = float(support_S5P.min())
-x_plot_max = float(support_S5P.max())
-y_plot_min = float(support_S2P.min())
-y_plot_max = float(support_S2P.max())
+# Plot range: the range of the original figure (Ser5P 0-20, active fraction 0-0.20),
+# extended in steps of 5 and 0.05 where the simulated data reach beyond it
+x_plot_min, y_plot_min = 0.0, 0.0
+x_plot_max = max(20.0, 5.0 * np.ceil(S5P_vals.max() / 5.0))
+y_plot_max = max(0.20, 0.05 * np.ceil(S2P_vals.max() / 0.05))
+support_S5P = np.linspace(x_plot_min, x_plot_max, 200)
+support_S2P = np.linspace(y_plot_min, y_plot_max, 200)
+x_ticks = np.arange(0, x_plot_max + 1e-9, 5.0)
+y_ticks = np.round(np.arange(0, y_plot_max + 1e-9, 0.05), 2)
 
 # Normalize grid coordinates for fair distance calculation
 norm_S5P = (support_S5P - S5P_vals.mean()) / S5P_vals.std()
@@ -164,62 +208,134 @@ for i in range(grid_S5P.shape[0]):
         Z_threshold[i, j] = np.sum(weights * threshold_vals[indices[0]]) / np.sum(weights)
         Z_RPdist[i, j] = np.sum(weights * RPdist_vals[indices[0]]) / np.sum(weights)
 
-# Calculate mutual information for simulation results before plotting
-mi_results = {}
+# --------------------------
+# Mutual information between map location and design parameters
+# --------------------------
+# Bin-free nearest-neighbour estimator for a continuous readout and a discrete
+# parameter (Ross 2014, PLoS ONE 9:e87357). This is the construction used by
+# scikit-learn's mutual_info_classif, applied here to the joint two-dimensional
+# readout. k sets the neighbourhood size and thereby the resolution; k = 3 is the
+# conventional default. The readouts are standardized as for the maps.
+# Chance level: stratified permutation test. Within each combination of the other
+# two parameters, the values of the tested parameter are shuffled among conditions,
+# and all groups of one condition keep the same label.
+# Reported share = (MI - mean permuted MI) / H(parameter): the fraction of the
+# parameter's uncertainty that is removed by knowing the location in the map.
+MI_K = 3
+MI_N_PERM = args.n_perm
+
 S5P_norm = (S5P_vals - np.nanmean(S5P_vals)) / np.nanstd(S5P_vals)
 S2P_norm = (S2P_vals - np.nanmean(S2P_vals)) / np.nanstd(S2P_vals)
-
-# quantize arrays for joint normalized MI
-n_bins = 10
-S5P_codes = np.digitize(S5P_norm, np.histogram_bin_edges(S5P_norm, bins=n_bins))
-S2P_codes = np.digitize(S2P_norm, np.histogram_bin_edges(S2P_norm, bins=n_bins))
-joint_codes = S5P_codes * (S2P_codes.max() + 1) + S2P_codes
-
-# Null baseline by permutation: expected normalized MI with unrelated target data
 rng = np.random.default_rng(0)
-def null_nmi(X_codes, y_codes, n_perm=50):
-    values = []
+readouts = {
+    "S5P": S5P_norm[:, None],
+    "S2P": S2P_norm[:, None],
+    "S5P+S2P": np.column_stack([S5P_norm, S2P_norm]),
+}
+# A tiny jitter separates tied values, which the estimator assumes to be absent.
+readouts = {name: X + 1e-10 * rng.standard_normal(X.shape) for name, X in readouts.items()}
+
+
+def mi_knn(X, y, k=MI_K):
+    """Mutual information (nats) between continuous X (n x d) and discrete labels y."""
+    n = len(y)
+    radius = np.empty(n)
+    k_all = np.empty(n)
+    counts = np.empty(n)
+    for label in np.unique(y):
+        mask = y == label
+        count = mask.sum()
+        kk = min(k, count - 1)
+        r = NearestNeighbors(n_neighbors=kk).fit(X[mask]).kneighbors()[0][:, -1]
+        radius[mask] = np.nextafter(r, 0)
+        k_all[mask] = kk
+        counts[mask] = count
+    m_all = KDTree(X).query_radius(X, radius, count_only=True)
+    return (digamma(n) + np.mean(digamma(k_all))
+            - np.mean(digamma(counts)) - np.mean(digamma(m_all)))
+
+
+def entropy(y):
+    p = np.bincount(y) / len(y)
+    p = p[p > 0]
+    return -np.sum(p * np.log(p))
+
+
+design = ["Promoter", "Threshold", "Activation"]
+condition_key = data[design].astype(str).agg("_".join, axis=1).values
+
+
+def stratified_permutations(col, y, n_perm):
+    others = [c for c in design if c != col]
+    strata = data[others].astype(str).agg("_".join, axis=1).values
+    blocks = []
+    for s_key in np.unique(strata):
+        idx = np.where(strata == s_key)[0]
+        members = [idx[condition_key[idx] == c] for c in np.unique(condition_key[idx])]
+        blocks.append((members, np.array([y[m[0]] for m in members])))
     for _ in range(n_perm):
-        y_shuffled = rng.permutation(y_codes)
-        values.append(normalized_mutual_info_score(X_codes, y_shuffled))
-    return float(np.mean(values))
+        y_perm = np.empty_like(y)
+        for members, labels in blocks:
+            for m, label in zip(members, rng.permutation(labels)):
+                y_perm[m] = label
+        yield y_perm
 
-for target_col in ["Promoter", "Threshold", "Activation"]:
-    target_vals = data[target_col].values
-    # Design parameters take a small set of discrete sampled values. Code each sampled
-    # value separately instead of using equal-width bins, which merge the low k_act
-    # values (0.1/0.5/1.0, 1.5/2.0, 2.5/3.0 1/min) and the thresholds 70/75.
-    target_codes = np.unique(target_vals, return_inverse=True)[1]
-    mi_s5p = normalized_mutual_info_score(S5P_codes, target_codes)
-    mi_s2p = normalized_mutual_info_score(S2P_codes, target_codes)
-    mi_s_joint = normalized_mutual_info_score(joint_codes, target_codes)
-    baseline_s5p = null_nmi(S5P_codes, target_codes)
-    baseline_s2p = null_nmi(S2P_codes, target_codes)
-    baseline_s_joint = null_nmi(joint_codes, target_codes)
-    mi_results[target_col] = {
-        "S5P": float(mi_s5p),
-        "S2P": float(mi_s2p),
-        "S5P+S2P": float(mi_s_joint),
-        "baseline_S5P": baseline_s5p,
-        "baseline_S2P": baseline_s2p,
-        "baseline_S5P+S2P": baseline_s_joint,
-    }
 
-# Compute normalized mutual information for simulated S5P/S2P vs simulated 5-percentile distance
-sim_target_vals = data["5percentRP"].values
-sim_target_codes = np.digitize(sim_target_vals, np.histogram_bin_edges(sim_target_vals, bins=n_bins))
-mi_sim_distance_joint = normalized_mutual_info_score(joint_codes, sim_target_codes)
-mi_sim_distance_s5p = normalized_mutual_info_score(S5P_codes, sim_target_codes)
-mi_sim_distance_s2p = normalized_mutual_info_score(S2P_codes, sim_target_codes)
+mi_results = {}
+mi_rows = []
+for target_col in design:
+    y = np.unique(data[target_col].values, return_inverse=True)[1]   # one category per sampled value
+    perms = list(stratified_permutations(target_col, y, MI_N_PERM))
+    H_y = entropy(y)
+    mi_results[target_col] = {}
+    for name, X in readouts.items():
+        mi = mi_knn(X, y)
+        null = np.array([mi_knn(X, y_perm) for y_perm in perms])
+        share = (mi - null.mean()) / H_y
+        p_value = (1 + np.sum(null >= mi)) / (1 + MI_N_PERM)
+        mi_results[target_col][name] = {"share": share, "P": p_value}
+        mi_rows.append({
+            "parameter": target_col, "readout": name, "k": MI_K,
+            "MI_bits": mi / np.log(2), "null_MI_bits": null.mean() / np.log(2),
+            "H_parameter_bits": H_y / np.log(2), "share_percent": 100 * share,
+            "P_stratified": p_value, "n_permutations": MI_N_PERM, "n_points": len(y),
+        })
+mi_table_path = os.path.join(base_dir, f"mutual_information_knn_k{MI_K}.csv")
+pd.DataFrame(mi_rows).to_csv(mi_table_path, index=False, float_format="%.4g")
 
-print("Mutual information (simulation):")
-for target_col, infos in mi_results.items():
-    print(f"  {target_col}: S5P={infos['S5P']:.4f} (null={infos['baseline_S5P']:.4f}), "
-          f"S2P={infos['S2P']:.4f} (null={infos['baseline_S2P']:.4f}), "
-          f"S5P+S2P={infos['S5P+S2P']:.4f} (null={infos['baseline_S5P+S2P']:.4f})")
-print(f"  Simulated 5%ile distance: S5P={mi_sim_distance_s5p:.4f}, "
-      f"S2P={mi_sim_distance_s2p:.4f}, "
-      f"S5P+S2P={mi_sim_distance_joint:.4f}")
+
+def format_p(p):
+    return f"<{1 / (1 + MI_N_PERM):.0e}" if p <= 1 / (1 + MI_N_PERM) else f"{p:.3g}"
+
+
+print(f"Mutual information, map location vs design parameter "
+      f"(k={MI_K}, {MI_N_PERM} stratified permutations; share of the parameter's entropy):")
+for target_col in design:
+    r = mi_results[target_col]
+    print(f"  {target_col}: " + ", ".join(
+        f"{name} {100 * r[name]['share']:.1f}% (P{'' if format_p(r[name]['P']).startswith('<') else '='}"
+        f"{format_p(r[name]['P'])})" for name in readouts))
+print(f"Table saved as: {mi_table_path}")
+
+# Adjusted MI between the binned readouts and the simulated 5-percentile distance
+# (quantile bins: each bin holds about the same number of points)
+n_bins = 10
+
+
+def quantile_codes(values, n_bins):
+    edges = np.unique(np.nanquantile(values, np.linspace(0, 1, n_bins + 1))[1:-1])
+    return np.digitize(values, edges)
+
+
+S5P_codes = quantile_codes(S5P_norm, n_bins)
+S2P_codes = quantile_codes(S2P_norm, n_bins)
+joint_codes = S5P_codes * (S2P_codes.max() + 1) + S2P_codes
+sim_target_codes = quantile_codes(data["5percentRP"].values, n_bins)
+mi_sim_distance_joint = adjusted_mutual_info_score(joint_codes, sim_target_codes)
+mi_sim_distance_s5p = adjusted_mutual_info_score(S5P_codes, sim_target_codes)
+mi_sim_distance_s2p = adjusted_mutual_info_score(S2P_codes, sim_target_codes)
+print(f"Adjusted MI with the simulated 5%ile distance: S5P={mi_sim_distance_s5p:.4f}, "
+      f"S2P={mi_sim_distance_s2p:.4f}, S5P+S2P={mi_sim_distance_joint:.4f}")
 
 
 # Plot each variable in its own subplot
@@ -282,8 +398,10 @@ for ax_index, (ax, (title, Z_values, scale)) in enumerate(zip(axes, variable_spe
     ax.set_title(title, fontsize=8)
     ax.set_xlabel("Pol II Ser5P")
     ax.set_ylabel("Active fraction (Pol II Ser2P)")
-    ax.set_xticks([0, 5, 10, 15, 20])
-    ax.set_yticks([0.0, 0.05, 0.10, 0.15, 0.20])
+    ax.set_xticks(x_ticks)
+    ax.set_yticks(y_ticks)
+    ax.set_xlim(x_plot_min, x_plot_max)
+    ax.set_ylim(y_plot_min, y_plot_max)
     ax.xaxis.set_minor_locator(MultipleLocator(5))
     ax.yaxis.set_minor_locator(MultipleLocator(0.05))
     ax.tick_params(axis='x', which='minor', labelbottom=False)
@@ -299,8 +417,8 @@ for ax_index, (ax, (title, Z_values, scale)) in enumerate(zip(axes, variable_spe
         mi_key = "Activation"
 
     if mi_key is not None:
-        infos = mi_results.get(mi_key, {})
-        mi_text = f"Normalized\nMI(S5P+S2P)={infos['S5P+S2P']:.3f}"
+        info = mi_results[mi_key]["S5P+S2P"]
+        mi_text = f"MI(S5P,S2P)\n{100 * info['share']:.1f}% of H"
         # store annotation text for later; we'll draw boxes matching subplot 1's legend
         mi_annotations.append((ax_index, mi_text))
 
@@ -314,7 +432,7 @@ for ax_index, (ax, (title, Z_values, scale)) in enumerate(zip(axes, variable_spe
 # Comparison to microscopy data
 # --------------------------
 # --- Reading in additional microscopy data for matching ---
-microscopy_data_path = os.path.join(base_dir, "gene_cluster_visit_OPoutcome_20260719.csv")
+microscopy_data_path = microscopy_path
 microscopy_data = pd.read_csv(microscopy_data_path)
 microscopy_data.columns = ["stage_gene", "five_percent_distance_nm", "ser5p_level", "ser2p_level"]
 
@@ -365,6 +483,8 @@ for i, (xt, yt, zt) in enumerate(zip(trafo_mic_S5P, trafo_mic_S2P, trafo_mic_5Pr
 
 
 r, p = stats.pearsonr(preds, trafo_mic_5PrctDist)
+print(f"Microscopy comparison: r={r:.4f}, P={p:.3e}, n={len(trafo_mic_5PrctDist)} "
+      f"(nearest neighbours in unstandardized Ser5P/Ser2P coordinates)")
 p_str = f"{p:.0e}"
 if "e" in p_str:
     mantissa, exp = p_str.split("e")
@@ -528,8 +648,10 @@ def _style_scatter_axis(ax):
     ax.set_facecolor("0.88")
     ax.set_xlabel("Pol II Ser5P", fontsize=FIG2_LABEL_SIZE, fontfamily=FIG2_FONT, fontweight="regular")
     ax.set_ylabel("Active fraction (Pol II Ser2P)", fontsize=FIG2_LABEL_SIZE, fontfamily=FIG2_FONT, fontweight="regular")
-    ax.set_xticks([0, 5, 10, 15, 20])
-    ax.set_yticks([0.0, 0.05, 0.10, 0.15, 0.20])
+    ax.set_xticks(x_ticks)
+    ax.set_yticks(y_ticks)
+    ax.set_xlim(x_plot_min, x_plot_max)
+    ax.set_ylim(y_plot_min, y_plot_max)
     ax.xaxis.set_minor_locator(MultipleLocator(5))
     ax.yaxis.set_minor_locator(MultipleLocator(0.05))
     ax.tick_params(axis="x", which="minor", labelbottom=False)

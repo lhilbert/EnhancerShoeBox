@@ -41,6 +41,12 @@ These are produced by:
   `dist_{induced,approaching,active,receding}.txt`,
   `ddist_{induced,approaching,active,receding}.txt`).
 
+The current sweep (330 conditions, seeded, resumable, no per-run figures) is
+run with [`run_sweep.py`](run_sweep.py) instead, which calls
+`run_single_GENES_STAGES.py` once per repeat with a fixed seed
+(promoter·10⁹ + threshold·10⁶ + activation·10³ + repeat). See
+[`RERUN_SWEEP_LINUX_SERVER.md`](RERUN_SWEEP_LINUX_SERVER.md) for running it.
+
 A near-identical sibling pair, `run_parallel_shoebox.sh` /
 `run_single_shoebox.py`, writes the same file layout but hardcodes a single
 fixed condition (`THRESHOLD=80`, `ACTIVATION=30`, `PROMOTER=3`) rather than
@@ -78,6 +84,24 @@ Run any of these from this directory with e.g. `python dist_genestages_all.py`
 whichever `summary_contact_*.txt` table matches the variable set and grouping
 they need.
 
+**Current aggregation.** The manuscript uses
+`dist_genestages_grouped_5percentile_10xaveraging.py` with these options:
+
+| Option | Meaning |
+| --- | --- |
+| `--box-dir DIR` | folder with the condition folders (default `box11`) |
+| `--n-runs N` | use the first N finished runs per condition; interrupted runs are skipped and replaced by later ones |
+| `--max-repeats N` | use only runs numbered 1 to N (no replacement) |
+| `--from-step S` | first Python step of the common time window for all readouts (default 150, gene induction) |
+| `--legacy` | time windows of the original analysis, for comparison only |
+| `--output FILE` | output table |
+
+A run counts as finished when `parallel_counter/run<r>.txt` exists and
+`run<r>/geneTrack.txt` has 2000 lines. Each `geneTrack.txt` is read once, and
+one progress line per condition is printed. Only complete groups of 10 runs
+enter the table. The manuscript table was made with
+`--box-dir <sweep folder> --n-runs 60` (330 conditions × 6 groups = 1980 rows).
+
 Note: `summary_contact_grouped.txt` and
 `summary_contact_grouped_Thresholds10-100.txt` share `dist_genestages_grouped.py`'s
 column layout but not its current output filename
@@ -93,19 +117,27 @@ means running [`run_singleCond_parallel.sh`](run_singleCond_parallel.sh)
 every condition in that grid, not just a subset — an aggregation run over a
 partial `box11/` silently yields an equally partial, misleading summary
 table rather than an error. The `summary_contact_*.txt` files currently
-checked into this repository were built from such a complete 330-condition
-sweep and are kept as the basis for the current manuscript's figures;
+checked into this repository were built from the original complete
+330-condition sweep and reproduce the previously published figures. The rerun
+sweep with the fixed code (November 2026) and its aggregated table are archived
+separately;
 `box11/` as currently present on disk is a smaller, partial set of leftover
 condition folders and is not sufficient to regenerate those summaries — it is
 intentionally left out of the analysis rather than used to overwrite them.
 
 ## Summary maps: `shoebox_summary_maps.py`
 
-Run with `python shoebox_summary_maps.py` from this directory (needs a
-`summary_contact_grouped_Thresholds10-100_5percentile_10xaveraged.txt`
-summary table and the `gene_cluster_visit_OPoutcome_20260719.csv` microscopy
-file alongside it). It produces two figures, both plotted on the same
-Pol II Ser5P (x) / active-fraction Pol II Ser2P (y) coordinate system:
+Run with `python shoebox_summary_maps.py` from this directory, or with
+`python shoebox_summary_maps.py --out-dir <folder>` to read the summary table
+from and write all outputs to another folder. `--summary` and `--microscopy`
+set the two input files individually. The microscopy table
+`gene_cluster_visit_OPoutcome_20260719.csv` is taken from this directory if it
+is not in the output folder. `--n-perm` sets the number of permutations for the
+mutual information (default 1000). The plot range is that of the published
+figure (Ser5P 0–20, active fraction 0–0.20) and extends in steps of 5 and 0.05
+where the data reach beyond it. The script produces two figures, both plotted
+on the same Pol II Ser5P (x) / active-fraction Pol II Ser2P (y) coordinate
+system, and one table:
 
 - **Fig. 1 — interpolation maps (`shoebox_colormaps.svg`/`.png`)**: one row
   of 4 panels. Each simulated repeat is a point in (Ser5P, Ser2P) space
@@ -118,9 +150,10 @@ Pol II Ser5P (x) / active-fraction Pol II Ser2P (y) coordinate system:
   parameter/outcome does the simulation predict on average?". The
   simulated points' convex hull is outlined in black, and transformed
   microscopy data points are overlaid on the first panel for comparison,
-  with a reported Pearson r and p-value. Mutual-information values (also
-  printed to stdout) quantify how much each variable is actually explained
-  by Ser5P/Ser2P jointly, versus a shuffled-null baseline.
+  with a reported Pearson r and p-value (also printed to stdout). The panel
+  labels give the mutual information between the joint Ser5P/Ser2P readout
+  and each design parameter, as the share of the parameter's entropy that is
+  removed by knowing the readouts.
 
 - **Fig. 2 — raw scatter maps (`shoebox_scatter_maps.svg`/`.png`)**: 2 rows,
   5 panels (A–E), one dot per simulated repeat (no averaging/interpolation).
@@ -131,3 +164,22 @@ Pol II Ser5P (x) / active-fraction Pol II Ser2P (y) coordinate system:
   given region of Ser5P/Ser2P space is actually well-sampled before trusting
   the interpolated value there, and for spotting outliers or sub-populations
   that averaging would hide.
+
+- **Mutual information table (`mutual_information_knn_k3.csv`)**: for each
+  design parameter and for Ser5P alone, Ser2P alone and both combined, the
+  mutual information I in bits, estimated without binning by the
+  nearest-neighbour estimator for a continuous and a discrete variable
+  (Kraskov et al. 2004; Ross 2014; k = 3, standardized readouts); the chance
+  level I0, the mean over stratified permutations (the tested parameter is
+  shuffled among conditions within each combination of the other two
+  parameters, all groups of a condition keeping one value); the parameter
+  entropy H; the share s = (I − I0)/H; and the one-sided permutation P value.
+
+## One-command rerun analysis: `run_rerun_analysis.py`
+
+`python run_rerun_analysis.py --box-dir <sweep folder> --n-runs 60` checks how
+many finished runs each condition has, runs the aggregation with `--n-runs`,
+and then `shoebox_summary_maps.py`, writing everything to
+`<drive>/rerun_analysis_<N>runs/` unless `--out-dir` is given. Without
+`--box-dir`, it searches `--drive` for the folder holding the condition
+folders. `--skip-aggregation` redraws the maps from an existing table.
