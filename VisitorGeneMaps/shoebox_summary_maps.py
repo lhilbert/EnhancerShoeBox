@@ -39,6 +39,10 @@ parser.add_argument("--microscopy", default=None,
                     help=f"microscopy table (default: {MICROSCOPY_NAME} in <out-dir>, else next to this script)")
 parser.add_argument("--n-perm", type=int, default=1000,
                     help="permutations for the mutual-information P values (default: 1000)")
+parser.add_argument("--bare", action="store_true",
+                    help="leave out panel titles, axis labels and the legend/MI label text, "
+                         "so the panels can be placed under the figure's own Inkscape labels. "
+                         "The white legend and MI boxes keep their size and position.")
 args, _unknown = parser.parse_known_args()
 
 script_dir = Path(__file__).resolve().parent
@@ -395,9 +399,10 @@ for ax_index, (ax, (title, Z_values, scale)) in enumerate(zip(axes, variable_spe
         alpha=0.6,
         label="Simulation\ncoverage")
 
-    ax.set_title(title, fontsize=8)
-    ax.set_xlabel("Pol II Ser5P")
-    ax.set_ylabel("Active fraction (Pol II Ser2P)")
+    if not args.bare:
+        ax.set_title(title, fontsize=8)
+        ax.set_xlabel("Pol II Ser5P")
+        ax.set_ylabel("Active fraction (Pol II Ser2P)")
     ax.set_xticks(x_ticks)
     ax.set_yticks(y_ticks)
     ax.set_xlim(x_plot_min, x_plot_max)
@@ -516,6 +521,10 @@ first_ax.scatter(
 )
 
 leg = first_ax.legend(loc="upper right", frameon=True, fontsize=8)
+if args.bare:
+    # keep the box and the handles, drop only the lettering
+    for _t in leg.get_texts():
+        _t.set_color("none")
 frame = leg.get_frame()
 frame.set_facecolor('white')
 frame.set_edgecolor('none')
@@ -587,9 +596,17 @@ for ax_idx, text in mi_annotations:
     text_x_fig = rect_left + 0.03 * rect_width_fig
     text_y_fig = rect_y_fig + rect_height_fig - 0.12 * rect_height_fig
     t = fig.text(text_x_fig, text_y_fig, text, transform=fig.transFigure, ha='left', va='top', fontsize=8,
-                 family='Arial', fontweight='regular', zorder=5)
+                 family='Arial', fontweight='regular', zorder=5,
+                 color=("none" if args.bare else "black"))
     t.set_clip_path(ax.patch)
 
+
+if args.bare:
+    # The legend box is laid out from the label text, so its size depends on the
+    # available font. Hide it here and keep the figure's existing legend, rather
+    # than shifting it against the labels placed on top. The MI boxes above were
+    # already measured against it.
+    leg.set_visible(False)
 
 # --- saving to file ---
 # Save the plot as an SVG file
